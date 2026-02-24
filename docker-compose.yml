@@ -1,0 +1,12 @@
+services:
+  integration-tests:
+    build: .
+    volumes:
+      - .:/app
+    command: ["./scripts/start-tests.sh"]
+
+  lint-formatter:
+    build: .
+    volumes:
+      - .:/app
+    command: ["./scripts/start-formatter-lint.sh"]

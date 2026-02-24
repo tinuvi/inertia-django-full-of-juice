@@ -1,0 +1,37 @@
+name: PR checks
+
+on:
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+      - name: Run lint and formatter checks
+        run: |
+          docker compose up --build --abort-on-container-exit --exit-code-from lint-formatter lint-formatter
+      - name: Run integration tests
+        run: |
+          docker compose up --build --abort-on-container-exit --exit-code-from integration-tests integration-tests
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install Poetry
+        run: pip install poetry
+      - name: Configure Test PyPI
+        run: |
+          poetry config repositories.testpypi https://test.pypi.org/legacy/
+          poetry config pypi-token.testpypi ${{ secrets.TEST_PYPI_TOKEN }}
+      - name: Publish to Test PyPI
+        run: |
+          cd .github/workflows
+          python -c "from test_pypi_publish import publish_test_pypi; publish_test_pypi(path='${{ github.workspace }}')"

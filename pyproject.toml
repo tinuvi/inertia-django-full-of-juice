@@ -3,35 +3,26 @@ requires = ["poetry-core>=2.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [project]
-name = "inertia-django"
-version = "1.2.0"
-description = "Django adapter for the InertiaJS framework"
-authors = [{name="Brandon Shar", email="brandon@bellawatt.com"}]
+name = "inertia-django-full-of-juice"
+version = "0.1.0"
+description = "It's an opinionated Django adapter for the InertiaJS framework"
+authors = [
+    {name = "Tinuvi", email = "no-reply@tinuvi.com"}
+]
 license = "MIT"
-requires-python = ">=3.10"
 readme = "README.md"
-repository = "https://github.com/inertiajs/inertia-django"
-homepage = "https://github.com/inertiajs/inertia-django"
-keywords = ["inertia", "inertiajs", "django"]
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
-    "Framework :: Django :: 4",
-    "Topic :: Software Development :: Libraries :: Python Modules",
-]
-dependencies = [
-    "django>=4",
-]
 
-[project.optional-dependencies]
-# Requests is requires for server-side rendering.
-ssr = ["requests>=2"]
+[project.urls]
+repository = "https://github.com/tinuvi/inertia-django-full-of-juice"
+"Bug Tracker" = "https://github.com/tinuvi/inertia-django-full-of-juice/issues"
 
 [tool.poetry]
-packages = [
-  { include = "inertia" },
-]
+packages = [{ include = "inertia" }]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+django = "^5.2.11"
+requests = "^2.32.5"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.5"
@@ -53,6 +44,7 @@ select = [
 ]
 ignore = ["E501"] # line too long, formatter will handle this
 unfixable = ["B", "SIM"]
+target-version = "py312"
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "inertia.tests.settings"

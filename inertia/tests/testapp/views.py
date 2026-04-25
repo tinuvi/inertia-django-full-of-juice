@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from django.http.response import HttpResponse
 from django.shortcuts import redirect
 from django.utils.decorators import decorator_from_middleware
@@ -10,6 +12,7 @@ from inertia import (
     lazy,
     location,
     merge,
+    once,
     optional,
     preserve_fragment,
     render,
@@ -230,3 +233,57 @@ def errors_response_custom_view(request):
 
 def inertia_redirect_helper_test(request):
     return inertia_redirect("/foo#bar")
+
+
+@inertia("TestComponent")
+def once_test(request):
+    return {
+        "name": "Brian",
+        "plans": once(lambda: ["A", "B"]),
+    }
+
+
+@inertia("TestComponent")
+def once_custom_key_test(request):
+    return {
+        "plans": once(lambda: ["A", "B"], key="custom-key"),
+    }
+
+
+@inertia("TestComponent")
+def once_fresh_test(request):
+    return {
+        "plans": once(lambda: ["A", "B"], fresh=True),
+    }
+
+
+@inertia("TestComponent")
+def once_multiple_test(request):
+    return {
+        "plans": once(lambda: ["A", "B"]),
+        "config": once(lambda: {"x": 1}),
+    }
+
+
+@inertia("TestComponent")
+def once_expires_in_timedelta_test(request):
+    return {
+        "plans": once(lambda: ["A"], expires_in=timedelta(seconds=60)),
+    }
+
+
+@inertia("TestComponent")
+def once_expires_in_int_test(request):
+    return {
+        "plans": once(lambda: ["A"], expires_in=30),
+    }
+
+
+ONCE_FIXED_DATETIME = datetime(2030, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+
+
+@inertia("TestComponent")
+def once_expires_at_datetime_test(request):
+    return {
+        "plans": once(lambda: ["A"], expires_at=ONCE_FIXED_DATETIME),
+    }

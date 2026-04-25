@@ -10,7 +10,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.template.loader import render_to_string
 
 from .helpers import deep_transform_callables
-from .prop_classes import DeferredProp, IgnoreOnFirstLoadProp, MergeableProp
+from .prop_classes import DeferredProp, IgnoreOnFirstLoadProp, MergeableProp, OnceProp
 from .settings import settings
 
 try:
@@ -63,6 +63,10 @@ class InertiaRequest(HttpRequest):
 
     def reset_keys(self) -> list[str]:
         return self.headers.get("X-Inertia-Reset", "").split(",")
+
+    def except_once_keys(self) -> list[str]:
+        raw = self.headers.get("X-Inertia-Except-Once-Props", "")
+        return [k for k in raw.split(",") if k]
 
     def is_inertia(self) -> bool:
         return "X-Inertia" in self.headers
@@ -125,6 +129,10 @@ class BaseInertiaResponseMixin:
         if _merge_props:
             _page["mergeProps"] = _merge_props
 
+        _once_props = self.build_once_props()
+        if _once_props:
+            _page["onceProps"] = _once_props
+
         return _page
 
     def build_props(self) -> Any:
@@ -138,6 +146,7 @@ class BaseInertiaResponseMixin:
         is_partial = self.request.is_a_partial_render(self.component)
         partial_keys = self.request.partial_keys() if is_partial else []
         partial_except_keys = self.request.partial_except_keys() if is_partial else []
+        except_once_keys = self.request.except_once_keys()
 
         for key in list(_props.keys()):
             if key in ALWAYS_INCLUDED_KEYS:
@@ -150,11 +159,32 @@ class BaseInertiaResponseMixin:
                     continue
                 if key in partial_except_keys:
                     del _props[key]
+                    continue
             else:
                 if isinstance(_props[key], IgnoreOnFirstLoadProp):
                     del _props[key]
+                    continue
+
+            prop_value = _props.get(key)
+            if isinstance(prop_value, OnceProp) and not prop_value.fresh:
+                effective_key = prop_value.key or key
+                if effective_key in except_once_keys and not (
+                    is_partial and key in partial_keys
+                ):
+                    del _props[key]
 
         return deep_transform_callables(_props)
+
+    def build_once_props(self) -> dict[str, dict[str, Any]]:
+        _once_props: dict[str, dict[str, Any]] = {}
+        for key, prop in self.props.items():
+            if isinstance(prop, OnceProp):
+                effective_key = prop.key or key
+                _once_props[effective_key] = {
+                    "prop": key,
+                    "expiresAt": prop.expires_at,
+                }
+        return _once_props
 
     def build_deferred_props(self) -> dict[str, Any] | None:
         if self.request.is_a_partial_render(self.component):

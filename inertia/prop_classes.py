@@ -42,3 +42,18 @@ class DeferredProp(CallableProp[T], MergeableProp, IgnoreOnFirstLoadProp):
 class MergeProp(CallableProp[T], MergeableProp):
     def should_merge(self) -> bool:
         return True
+
+
+class OnceProp(CallableProp[T]):
+    def __init__(
+        self,
+        prop: T | Callable[[], T],
+        *,
+        key: str | None = None,
+        fresh: bool = False,
+        expires_at: int | None = None,
+    ) -> None:
+        super().__init__(prop)
+        self.key = key
+        self.fresh = fresh
+        self.expires_at = expires_at

@@ -1,7 +1,11 @@
+import time
+from datetime import datetime, timezone
+
 from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 from pytest import warns
 
+from inertia import once
 from inertia.test import InertiaTestCase, inertia_div, inertia_page
 
 
@@ -355,3 +359,113 @@ class ErrorsResponseTestCase(InertiaTestCase):
                 "errors": {"name": "Required"},
             },
         )
+
+
+class OncePropsTestCase(InertiaTestCase):
+    def test_initial_load_resolves_and_emits_registry(self):
+        self.assertJSONResponse(
+            self.inertia.get("/once/"),
+            inertia_page(
+                "once",
+                props={"name": "Brian", "plans": ["A", "B"]},
+                once_props={"plans": {"prop": "plans", "expiresAt": None}},
+            ),
+        )
+
+    def test_subsequent_request_with_except_omits_value_keeps_registry(self):
+        self.inertia.get("/once/", HTTP_X_INERTIA_EXCEPT_ONCE_PROPS="plans")
+        page_props = self.props()
+        self.assertNotIn("plans", page_props)
+        self.assertIn("name", page_props)
+        self.assertEqual(
+            self.page()["onceProps"],
+            {"plans": {"prop": "plans", "expiresAt": None}},
+        )
+
+    def test_custom_key_in_registry(self):
+        self.inertia.get("/once-custom-key/")
+        page = self.page()
+        self.assertEqual(page["props"].get("plans"), ["A", "B"])
+        self.assertEqual(
+            page["onceProps"],
+            {"custom-key": {"prop": "plans", "expiresAt": None}},
+        )
+
+    def test_custom_key_in_except_header_omits_value(self):
+        self.inertia.get(
+            "/once-custom-key/",
+            HTTP_X_INERTIA_EXCEPT_ONCE_PROPS="custom-key",
+        )
+        page = self.page()
+        self.assertNotIn("plans", page["props"])
+        self.assertEqual(
+            page["onceProps"],
+            {"custom-key": {"prop": "plans", "expiresAt": None}},
+        )
+
+    def test_fresh_overrides_except_header(self):
+        self.inertia.get("/once-fresh/", HTTP_X_INERTIA_EXCEPT_ONCE_PROPS="plans")
+        page = self.page()
+        self.assertEqual(page["props"].get("plans"), ["A", "B"])
+        self.assertEqual(
+            page["onceProps"],
+            {"plans": {"prop": "plans", "expiresAt": None}},
+        )
+
+    def test_partial_reload_with_key_in_partial_data_always_resolves(self):
+        self.inertia.get(
+            "/once/",
+            HTTP_X_INERTIA_EXCEPT_ONCE_PROPS="plans",
+            HTTP_X_INERTIA_PARTIAL_DATA="plans",
+            HTTP_X_INERTIA_PARTIAL_COMPONENT="TestComponent",
+        )
+        page = self.page()
+        self.assertEqual(page["props"].get("plans"), ["A", "B"])
+        self.assertEqual(
+            page["onceProps"],
+            {"plans": {"prop": "plans", "expiresAt": None}},
+        )
+
+    def test_multiple_once_props_in_one_response(self):
+        self.inertia.get("/once-multiple/")
+        page = self.page()
+        self.assertEqual(page["props"].get("plans"), ["A", "B"])
+        self.assertEqual(page["props"].get("config"), {"x": 1})
+        self.assertEqual(
+            page["onceProps"],
+            {
+                "plans": {"prop": "plans", "expiresAt": None},
+                "config": {"prop": "config", "expiresAt": None},
+            },
+        )
+
+    def test_expires_in_timedelta_emits_numeric_expires_at(self):
+        before_ms = int(time.time() * 1000) + 60_000
+        self.inertia.get("/once-expires-in-td/")
+        after_ms = int(time.time() * 1000) + 60_000
+        page = self.page()
+        expires_at = page["onceProps"]["plans"]["expiresAt"]
+        self.assertIsInstance(expires_at, int)
+        self.assertGreaterEqual(expires_at, before_ms - 2_000)
+        self.assertLessEqual(expires_at, after_ms + 2_000)
+
+    def test_expires_in_int_seconds_emits_numeric_expires_at(self):
+        before_ms = int(time.time() * 1000) + 30_000
+        self.inertia.get("/once-expires-in-int/")
+        after_ms = int(time.time() * 1000) + 30_000
+        page = self.page()
+        expires_at = page["onceProps"]["plans"]["expiresAt"]
+        self.assertIsInstance(expires_at, int)
+        self.assertGreaterEqual(expires_at, before_ms - 2_000)
+        self.assertLessEqual(expires_at, after_ms + 2_000)
+
+    def test_expires_at_datetime_emits_correct_ms(self):
+        target = datetime(2030, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        expected_ms = int(target.timestamp() * 1000)
+        self.inertia.get("/once-expires-at-dt/")
+        page = self.page()
+        self.assertEqual(page["onceProps"]["plans"]["expiresAt"], expected_ms)
+
+    def test_dual_input_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            once(lambda: ["A"], expires_in=60, expires_at=1234567890123)

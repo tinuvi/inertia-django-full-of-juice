@@ -33,4 +33,11 @@ urlpatterns = [
     path("errors-response/", views.errors_response_view),
     path("errors-response-custom/", views.errors_response_custom_view),
     path("inertia-redirect-helper/", views.inertia_redirect_helper_test),
+    path("once/", views.once_test),
+    path("once-custom-key/", views.once_custom_key_test),
+    path("once-fresh/", views.once_fresh_test),
+    path("once-multiple/", views.once_multiple_test),
+    path("once-expires-in-td/", views.once_expires_in_timedelta_test),
+    path("once-expires-in-int/", views.once_expires_in_int_test),
+    path("once-expires-at-dt/", views.once_expires_at_datetime_test),
 ]

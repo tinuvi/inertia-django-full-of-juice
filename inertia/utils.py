@@ -1,5 +1,6 @@
 import warnings
 from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
 from typing import Any, TypeVar
 
 from django.core.serializers.json import DjangoJSONEncoder
@@ -7,7 +8,7 @@ from django.db import models
 from django.db.models.query import QuerySet
 from django.forms.models import model_to_dict as base_model_to_dict
 
-from .prop_classes import DeferredProp, MergeProp, OptionalProp
+from .prop_classes import DeferredProp, MergeProp, OnceProp, OptionalProp
 
 T = TypeVar("T")
 
@@ -56,3 +57,36 @@ def defer(
 
 def merge(prop: T | Callable[[], T]) -> MergeProp[T]:
     return MergeProp(prop)
+
+
+def once(
+    prop: T | Callable[[], T],
+    *,
+    key: str | None = None,
+    fresh: bool = False,
+    expires_in: timedelta | int | None = None,
+    expires_at: datetime | int | None = None,
+) -> OnceProp[T]:
+    if expires_in is not None and expires_at is not None:
+        raise ValueError("Provide only one of `expires_in` or `expires_at`, not both.")
+
+    expires_at_ms: int | None = None
+
+    if expires_in is not None:
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        if isinstance(expires_in, timedelta):
+            expires_at_ms = now_ms + int(expires_in.total_seconds() * 1000)
+        else:
+            expires_at_ms = now_ms + expires_in * 1000
+    elif expires_at is not None:
+        if isinstance(expires_at, datetime):
+            dt = (
+                expires_at
+                if expires_at.tzinfo is not None
+                else expires_at.replace(tzinfo=timezone.utc)
+            )
+            expires_at_ms = int(dt.timestamp() * 1000)
+        else:
+            expires_at_ms = expires_at
+
+    return OnceProp(prop, key=key, fresh=fresh, expires_at=expires_at_ms)

@@ -100,6 +100,7 @@ def inertia_page(
     template_data=None,
     deferred_props=None,
     merge_props=None,
+    once_props=None,
     encrypt_history: bool = False,
     clear_history: bool = False,
     preserve_fragment: bool = False,
@@ -129,6 +130,9 @@ def inertia_page(
 
     if merge_props:
         _page["mergeProps"] = merge_props
+
+    if once_props is not None:
+        _page["onceProps"] = once_props
 
     return _page
 

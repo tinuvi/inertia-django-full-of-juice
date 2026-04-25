@@ -100,17 +100,29 @@ def inertia_page(
     template_data=None,
     deferred_props=None,
     merge_props=None,
+    encrypt_history: bool = False,
+    clear_history: bool = False,
+    preserve_fragment: bool = False,
 ):
     props = props or {}
     template_data = template_data or {}
+    if "errors" not in props:
+        props = {**props, "errors": {}}
     _page = {
         "component": component,
         "props": props,
         "url": f"/{url}/",
         "version": settings.INERTIA_VERSION,
-        "encryptHistory": False,
-        "clearHistory": False,
     }
+
+    if encrypt_history:
+        _page["encryptHistory"] = True
+
+    if clear_history:
+        _page["clearHistory"] = True
+
+    if preserve_fragment:
+        _page["preserveFragment"] = True
 
     if deferred_props:
         _page["deferredProps"] = deferred_props

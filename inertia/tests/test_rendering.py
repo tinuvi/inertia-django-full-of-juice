@@ -135,7 +135,7 @@ class ShareTestCase(InertiaTestCase):
         )
 
         self.assertHasExactProps(
-            {"name": "Brandon", "position": "goalie", "number": 29}
+            {"name": "Brandon", "position": "goalie", "number": 29, "errors": {}}
         )
 
 
@@ -259,3 +259,99 @@ class MisconfiguredLayoutTestCase(InertiaTestCase):
             ),
         ):
             self.client.get("/props/")
+
+
+class ErrorsAutoInjectTestCase(InertiaTestCase):
+    def test_errors_present_on_every_response(self):
+        self.inertia.get("/empty/")
+        self.assertEqual(self.props().get("errors"), {})
+
+    def test_errors_present_with_props(self):
+        self.inertia.get("/props/")
+        self.assertEqual(self.props().get("errors"), {})
+
+    def test_user_provided_errors_via_share_are_preserved(self):
+        self.inertia.get("/errors-share/")
+        self.assertEqual(self.props().get("errors"), {"name": "Required"})
+
+    def test_user_provided_errors_via_per_render_props_are_preserved(self):
+        self.inertia.get("/errors-per-render/")
+        self.assertEqual(self.props().get("errors"), {"sport": "Invalid"})
+
+    def test_errors_survives_partial_reload(self):
+        self.inertia.get(
+            "/props/",
+            HTTP_X_INERTIA_PARTIAL_DATA="name",
+            HTTP_X_INERTIA_PARTIAL_COMPONENT="TestComponent",
+        )
+        page_props = self.props()
+        self.assertIn("errors", page_props)
+        self.assertEqual(page_props["errors"], {})
+        self.assertIn("name", page_props)
+        self.assertNotIn("sport", page_props)
+
+
+class PartialExceptTestCase(InertiaTestCase):
+    def test_only_with_except(self):
+        self.inertia.get(
+            "/partial-except/",
+            HTTP_X_INERTIA_PARTIAL_DATA="name,sport,team",
+            HTTP_X_INERTIA_PARTIAL_EXCEPT="team",
+            HTTP_X_INERTIA_PARTIAL_COMPONENT="TestComponent",
+        )
+        page_props = self.props()
+        self.assertIn("name", page_props)
+        self.assertIn("sport", page_props)
+        self.assertNotIn("team", page_props)
+        self.assertNotIn("grit", page_props)
+
+    def test_except_overrides_only(self):
+        self.inertia.get(
+            "/partial-except/",
+            HTTP_X_INERTIA_PARTIAL_DATA="name,sport",
+            HTTP_X_INERTIA_PARTIAL_EXCEPT="sport",
+            HTTP_X_INERTIA_PARTIAL_COMPONENT="TestComponent",
+        )
+        page_props = self.props()
+        self.assertIn("name", page_props)
+        self.assertNotIn("sport", page_props)
+
+    def test_except_with_deferred(self):
+        self.inertia.get(
+            "/partial-except-deferred/",
+            HTTP_X_INERTIA_PARTIAL_DATA="sport,team",
+            HTTP_X_INERTIA_PARTIAL_EXCEPT="team",
+            HTTP_X_INERTIA_PARTIAL_COMPONENT="TestComponent",
+        )
+        page_props = self.props()
+        self.assertIn("sport", page_props)
+        self.assertEqual(page_props["sport"], "Basketball")
+        self.assertNotIn("team", page_props)
+
+
+class ErrorsResponseTestCase(InertiaTestCase):
+    def test_default_status_and_shape(self):
+        response = self.client.get("/errors-response/")
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.headers["Content-Type"], "application/json")
+        self.assertEqual(
+            response.json(),
+            {
+                "message": "The given data was invalid.",
+                "errors": {
+                    "email": "Required",
+                    "password": ["Too short", "Too weak"],
+                },
+            },
+        )
+
+    def test_custom_message_and_status(self):
+        response = self.client.get("/errors-response-custom/")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {
+                "message": "Custom message",
+                "errors": {"name": "Required"},
+            },
+        )

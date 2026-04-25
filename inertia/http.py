@@ -6,7 +6,7 @@ from json import dumps as json_encode
 from typing import Any, Concatenate, ParamSpec
 
 from django.core.exceptions import ImproperlyConfigured
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.template.loader import render_to_string
 
 from .helpers import deep_transform_callables
@@ -26,9 +26,12 @@ P = ParamSpec("P")
 
 INERTIA_REQUEST_ENCRYPT_HISTORY = "_inertia_encrypt_history"
 INERTIA_SESSION_CLEAR_HISTORY = "_inertia_clear_history"
+INERTIA_SESSION_PRESERVE_FRAGMENT = "_inertia_preserve_fragment"
 
 INERTIA_TEMPLATE = "inertia.html"
 INERTIA_SSR_TEMPLATE = "inertia_ssr.html"
+
+ALWAYS_INCLUDED_KEYS: frozenset[str] = frozenset({"errors"})
 
 
 class InertiaRequest(HttpRequest):
@@ -51,6 +54,12 @@ class InertiaRequest(HttpRequest):
 
     def partial_keys(self) -> list[str]:
         return self.headers.get("X-Inertia-Partial-Data", "").split(",")
+
+    def partial_except_keys(self) -> list[str]:
+        header = self.headers.get("X-Inertia-Partial-Except", "")
+        if not header:
+            return []
+        return header.split(",")
 
     def reset_keys(self) -> list[str]:
         return self.headers.get("X-Inertia-Reset", "").split(",")
@@ -82,14 +91,31 @@ class BaseInertiaResponseMixin:
                 f"Expected bool for clear_history, got {type(clear_history).__name__}"
             )
 
-        _page = {
+        preserve_fragment_flag = self.request.session.pop(
+            INERTIA_SESSION_PRESERVE_FRAGMENT, False
+        )
+        if not isinstance(preserve_fragment_flag, bool):
+            raise TypeError(
+                f"Expected bool for preserve_fragment, got {type(preserve_fragment_flag).__name__}"
+            )
+
+        encrypt_history_flag = self.request.should_encrypt_history()
+
+        _page: dict[str, Any] = {
             "component": self.component,
             "props": self.build_props(),
             "url": self.request.get_full_path(),
             "version": settings.INERTIA_VERSION,
-            "encryptHistory": self.request.should_encrypt_history(),
-            "clearHistory": clear_history,
         }
+
+        if encrypt_history_flag:
+            _page["encryptHistory"] = True
+
+        if clear_history:
+            _page["clearHistory"] = True
+
+        if preserve_fragment_flag:
+            _page["preserveFragment"] = True
 
         _deferred_props = self.build_deferred_props()
         if _deferred_props:
@@ -107,9 +133,22 @@ class BaseInertiaResponseMixin:
             **self.props,
         }
 
+        _props.setdefault("errors", {})
+
+        is_partial = self.request.is_a_partial_render(self.component)
+        partial_keys = self.request.partial_keys() if is_partial else []
+        partial_except_keys = self.request.partial_except_keys() if is_partial else []
+
         for key in list(_props.keys()):
-            if self.request.is_a_partial_render(self.component):
-                if key not in self.request.partial_keys():
+            if key in ALWAYS_INCLUDED_KEYS:
+                if is_partial and key in partial_except_keys:
+                    del _props[key]
+                continue
+            if is_partial:
+                if key not in partial_keys:
+                    del _props[key]
+                    continue
+                if key in partial_except_keys:
                     del _props[key]
             else:
                 if isinstance(_props[key], IgnoreOnFirstLoadProp):
@@ -253,12 +292,37 @@ def location(location: str) -> HttpResponse:
     )
 
 
+def inertia_redirect(url: str) -> HttpResponse:
+    return HttpResponse(
+        "",
+        status=HTTPStatus.CONFLICT,
+        headers={
+            "X-Inertia-Redirect": url,
+        },
+    )
+
+
 def encrypt_history(request: HttpRequest, value: bool = True) -> None:
     setattr(request, INERTIA_REQUEST_ENCRYPT_HISTORY, value)
 
 
 def clear_history(request: HttpRequest) -> None:
     request.session[INERTIA_SESSION_CLEAR_HISTORY] = True
+
+
+def preserve_fragment(request: HttpRequest) -> None:
+    request.session[INERTIA_SESSION_PRESERVE_FRAGMENT] = True
+
+
+def errors_response(
+    errors: dict[str, Any],
+    message: str = "The given data was invalid.",
+    status: int = 422,
+) -> JsonResponse:
+    return JsonResponse(
+        {"message": message, "errors": errors},
+        status=status,
+    )
 
 
 def inertia(

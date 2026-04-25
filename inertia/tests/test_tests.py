@@ -10,7 +10,7 @@ class TestTestCase(InertiaTestCase):
     def test_has_exact_props(self):
         self.client.get("/props/")
 
-        self.assertHasExactProps({"name": "Brandon", "sport": "Hockey"})
+        self.assertHasExactProps({"name": "Brandon", "sport": "Hockey", "errors": {}})
 
     def test_has_template_data(self):
         self.client.get("/template_data/")

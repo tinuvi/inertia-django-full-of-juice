@@ -23,4 +23,14 @@ urlpatterns = [
     path("clear-history/", views.clear_history_test),
     path("clear-history-redirect/", views.clear_history_redirect_test),
     path("clear-history-type-error/", views.clear_history_type_error_test),
+    path("errors-share/", views.errors_share_test),  # type: ignore[arg-type]
+    path("errors-per-render/", views.errors_per_render_test),
+    path("partial-except/", views.partial_except_test),
+    path("partial-except-deferred/", views.partial_except_with_deferred_test),
+    path("fragment-redirect/", views.fragment_redirect_test),
+    path("preserve-fragment/", views.preserve_fragment_view),
+    path("preserve-fragment-type-error/", views.preserve_fragment_type_error_test),
+    path("errors-response/", views.errors_response_view),
+    path("errors-response-custom/", views.errors_response_custom_view),
+    path("inertia-redirect-helper/", views.inertia_redirect_helper_test),
 ]

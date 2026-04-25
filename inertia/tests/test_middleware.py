@@ -1,3 +1,4 @@
+from inertia.http import inertia_redirect
 from inertia.test import InertiaTestCase
 
 
@@ -40,3 +41,29 @@ class MiddlewareTestCase(InertiaTestCase):
         self.assertEqual(response.status_code, 409)
         self.assertIn("X-Inertia-Location", response.headers)
         self.assertEqual("http://foobar.com/", response.headers["X-Inertia-Location"])
+
+
+class FragmentRedirectTestCase(InertiaTestCase):
+    def test_inertia_request_with_fragment_redirect_returns_409(self):
+        response = self.inertia.get("/fragment-redirect/")
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("X-Inertia-Redirect", response.headers)
+        self.assertIn("#section", response.headers["X-Inertia-Redirect"])
+
+    def test_non_inertia_request_with_fragment_redirect_is_left_alone(self):
+        response = self.client.get("/fragment-redirect/")
+        self.assertEqual(response.status_code, 302)
+        self.assertNotIn("X-Inertia-Redirect", response.headers)
+        self.assertIn("#section", response.headers["Location"])
+
+
+class InertiaRedirectHelperTestCase(InertiaTestCase):
+    def test_inertia_redirect_helper_returns_409_with_header(self):
+        response = inertia_redirect("/foo#bar")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.headers["X-Inertia-Redirect"], "/foo#bar")
+
+    def test_inertia_redirect_helper_used_in_view(self):
+        response = self.inertia.get("/inertia-redirect-helper/")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.headers["X-Inertia-Redirect"], "/foo#bar")

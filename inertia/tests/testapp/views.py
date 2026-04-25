@@ -2,8 +2,25 @@ from django.http.response import HttpResponse
 from django.shortcuts import redirect
 from django.utils.decorators import decorator_from_middleware
 
-from inertia import defer, inertia, lazy, location, merge, optional, render, share
-from inertia.http import INERTIA_SESSION_CLEAR_HISTORY, clear_history, encrypt_history
+from inertia import (
+    defer,
+    errors_response,
+    inertia,
+    inertia_redirect,
+    lazy,
+    location,
+    merge,
+    optional,
+    preserve_fragment,
+    render,
+    share,
+)
+from inertia.http import (
+    INERTIA_SESSION_CLEAR_HISTORY,
+    INERTIA_SESSION_PRESERVE_FRAGMENT,
+    clear_history,
+    encrypt_history,
+)
 
 
 class ShareMiddleware:
@@ -152,3 +169,64 @@ def clear_history_redirect_test(request):
 def clear_history_type_error_test(request):
     request.session[INERTIA_SESSION_CLEAR_HISTORY] = "foo"
     return {}
+
+
+@inertia("TestComponent")
+def errors_share_test(request):
+    share(request, errors={"name": "Required"})
+    return {}
+
+
+@inertia("TestComponent")
+def errors_per_render_test(request):
+    return {"errors": {"sport": "Invalid"}}
+
+
+@inertia("TestComponent")
+def partial_except_test(request):
+    return {
+        "name": "Brian",
+        "sport": "Hockey",
+        "team": "Penguins",
+        "grit": "intense",
+    }
+
+
+@inertia("TestComponent")
+def partial_except_with_deferred_test(request):
+    return {
+        "name": "Brian",
+        "sport": defer(lambda: "Basketball"),
+        "team": defer(lambda: "Bulls"),
+    }
+
+
+def fragment_redirect_test(request):
+    return redirect("/empty/#section")
+
+
+def preserve_fragment_view(request):
+    preserve_fragment(request)
+    return render(request, "TestComponent", props={})
+
+
+@inertia("TestComponent")
+def preserve_fragment_type_error_test(request):
+    request.session[INERTIA_SESSION_PRESERVE_FRAGMENT] = "foo"
+    return {}
+
+
+def errors_response_view(request):
+    return errors_response({"email": "Required", "password": ["Too short", "Too weak"]})
+
+
+def errors_response_custom_view(request):
+    return errors_response(
+        {"name": "Required"},
+        message="Custom message",
+        status=400,
+    )
+
+
+def inertia_redirect_helper_test(request):
+    return inertia_redirect("/foo#bar")

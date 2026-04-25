@@ -4,8 +4,10 @@ from django.contrib import messages
 from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import get_token
 
-from .http import location
+from .http import inertia_redirect, location
 from .settings import settings
+
+FRAGMENT_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 
 class InertiaMiddleware:
@@ -21,6 +23,9 @@ class InertiaMiddleware:
 
         if not self.is_inertia_request(request):
             return response
+
+        if self.is_fragment_redirect(response):
+            return inertia_redirect(response.headers.get("Location", ""))
 
         if self.is_non_post_redirect(request, response):
             response.status_code = 303
@@ -44,6 +49,12 @@ class InertiaMiddleware:
 
     def is_redirect_request(self, response: HttpResponse) -> bool:
         return response.status_code in [301, 302]
+
+    def is_fragment_redirect(self, response: HttpResponse) -> bool:
+        if response.status_code not in FRAGMENT_REDIRECT_STATUSES:
+            return False
+        location_header = response.headers.get("Location", "")
+        return "#" in location_header
 
     def is_stale(self, request: HttpRequest) -> bool:
         return (

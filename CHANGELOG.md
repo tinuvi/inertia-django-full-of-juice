@@ -23,6 +23,7 @@ Adds support for the [Inertia.js v3 protocol](https://inertiajs.com/docs/v3/core
 ### Changed
 - The page-object fields `encryptHistory`, `clearHistory`, and `preserveFragment` are now emitted only when `true` (v3 only-when-true convention). Test helpers updated accordingly.
 - `InertiaMiddleware` now converts any redirect response whose `Location` contains a `#fragment` on an Inertia request into a `409 + X-Inertia-Redirect` so the v3 client preserves the fragment.
+- The first-load page shell now emits `<script data-page="app" type="application/json">…</script>` followed by a bare `<div id="app"></div>`, replacing the legacy `<div id="app" data-page="…">` form. The v3 client refuses to boot from the legacy attribute. The page-data JSON has `<`, `>`, and `&` escaped as `<` / `>` / `&` to prevent script-context breakouts. `inertia_div()` test helper updated accordingly.
 
 ## [0.2.0] - 2026-04-25
 

@@ -359,8 +359,13 @@ class BaseInertiaResponseMixin:
             except Exception:
                 logger.exception("SSR render request failed")
 
+        # Escape characters that would let an attacker break out of the
+        # `<script type="application/json">` block in the v3 page-shell.
+        safe_data = (
+            data.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+        )
         return {
-            "page": data,
+            "page": safe_data,
             **(self.template_data),
         }, INERTIA_TEMPLATE
 

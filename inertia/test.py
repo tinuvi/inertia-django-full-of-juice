@@ -3,7 +3,6 @@ from unittest.mock import patch
 
 from django.template.loader import render_to_string as base_render_to_string
 from django.test import Client, TestCase
-from django.utils.html import escape
 
 from inertia.settings import settings
 
@@ -155,4 +154,10 @@ def inertia_page(
 
 def inertia_div(*args, **kwargs):
     page = inertia_page(*args, **kwargs)
-    return f'<div id="app" data-page="{escape(dumps(page))}"></div>'
+    safe_data = (
+        dumps(page)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
+    return f'<script data-page="app" type="application/json">{safe_data}</script>'

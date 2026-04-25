@@ -1,8 +1,9 @@
 import logging
+from collections.abc import Callable
 from functools import wraps
 from http import HTTPStatus
 from json import dumps as json_encode
-from typing import Any, Callable
+from typing import Any, Concatenate, ParamSpec
 
 from django.core.exceptions import ImproperlyConfigured
 from django.http import HttpRequest, HttpResponse
@@ -19,7 +20,9 @@ try:
 except ImportError:
     requests = None  # type: ignore[assignment]
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("inertia_django_full_of_juice")
+
+P = ParamSpec("P")
 
 INERTIA_REQUEST_ENCRYPT_HISTORY = "_inertia_encrypt_history"
 INERTIA_SESSION_CLEAR_HISTORY = "_inertia_clear_history"
@@ -261,15 +264,23 @@ def clear_history(request: HttpRequest) -> None:
 def inertia(
     component: str,
 ) -> Callable[
-    [Callable[..., HttpResponse | InertiaResponse | dict[str, Any]]],
-    Callable[..., HttpResponse],
+    [
+        Callable[
+            Concatenate[HttpRequest, P],
+            HttpResponse | InertiaResponse | dict[str, Any],
+        ]
+    ],
+    Callable[Concatenate[HttpRequest, P], HttpResponse],
 ]:
     def decorator(
-        func: Callable[..., HttpResponse | InertiaResponse | dict[str, Any]],
-    ) -> Callable[..., HttpResponse]:
+        func: Callable[
+            Concatenate[HttpRequest, P],
+            HttpResponse | InertiaResponse | dict[str, Any],
+        ],
+    ) -> Callable[Concatenate[HttpRequest, P], HttpResponse]:
         @wraps(func)
         def process_inertia_response(
-            request: HttpRequest, *args: Any, **kwargs: Any
+            request: HttpRequest, /, *args: P.args, **kwargs: P.kwargs
         ) -> HttpResponse:
             props = func(request, *args, **kwargs)
 

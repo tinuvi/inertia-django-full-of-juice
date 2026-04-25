@@ -28,10 +28,13 @@ requests = "^2.32.5"
 pytest = "^8.3.5"
 pytest-cov = "^6.0.0"
 pytest-django = "^4.10.0"
-ruff = "^0.11.2"
-mypy = "^1.17.0"
-django-stubs = {extras = ["compatible-mypy"], version = "^5.2.2"}
-types-requests = "^2.32.4.20250611"
+ruff = "^0.15.2"
+mypy = "^1.20.2"
+django-stubs = {extras = ["compatible-mypy"], version = "^6.0.3"}
+types-requests = "^2.33.0.20260408"
+
+[tool.ruff]
+target-version = "py314"
 
 [tool.ruff.lint]
 select = [
@@ -44,13 +47,13 @@ select = [
 ]
 ignore = ["E501"] # line too long, formatter will handle this
 unfixable = ["B", "SIM"]
-target-version = "py312"
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "inertia.tests.settings"
 django_find_project = false
 
 [tool.mypy]
+python_version = "3.14"
 plugins = ["mypy_django_plugin.main"]
 strict = true
 exclude = [

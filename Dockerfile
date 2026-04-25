@@ -1,7 +1,5 @@
 FROM python:3.14-slim
 
-RUN apt update && apt install -y git && apt clean
-
 WORKDIR /app
 
 RUN pip install --upgrade pip && \

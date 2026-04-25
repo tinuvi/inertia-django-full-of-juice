@@ -1,5 +1,6 @@
 import warnings
-from typing import Any
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
@@ -7,6 +8,8 @@ from django.db.models.query import QuerySet
 from django.forms.models import model_to_dict as base_model_to_dict
 
 from .prop_classes import DeferredProp, MergeProp, OptionalProp
+
+T = TypeVar("T")
 
 
 def model_to_dict(model: models.Model) -> dict[str, Any]:
@@ -32,7 +35,7 @@ class InertiaJsonEncoder(DjangoJSONEncoder):
         return super().default(o)
 
 
-def lazy(prop: Any) -> OptionalProp:
+def lazy(prop: T | Callable[[], T]) -> OptionalProp[T]:
     warnings.warn(
         "lazy is deprecated and will be removed in a future version. Please use optional instead.",
         DeprecationWarning,
@@ -41,13 +44,15 @@ def lazy(prop: Any) -> OptionalProp:
     return optional(prop)
 
 
-def optional(prop: Any) -> OptionalProp:
+def optional(prop: T | Callable[[], T]) -> OptionalProp[T]:
     return OptionalProp(prop)
 
 
-def defer(prop: Any, group: str = "default", merge: bool = False) -> DeferredProp:
+def defer(
+    prop: T | Callable[[], T], group: str = "default", merge: bool = False
+) -> DeferredProp[T]:
     return DeferredProp(prop, group=group, merge=merge)
 
 
-def merge(prop: Any) -> MergeProp:
+def merge(prop: T | Callable[[], T]) -> MergeProp[T]:
     return MergeProp(prop)

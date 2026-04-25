@@ -1,12 +1,15 @@
 from abc import ABC, abstractmethod
-from typing import Any
+from collections.abc import Callable
+from typing import Generic, TypeVar
+
+T = TypeVar("T")
 
 
-class CallableProp:
-    def __init__(self, prop: Any) -> None:
+class CallableProp(Generic[T]):
+    def __init__(self, prop: T | Callable[[], T]) -> None:
         self.prop = prop
 
-    def __call__(self) -> Any:
+    def __call__(self) -> T:
         return self.prop() if callable(self.prop) else self.prop
 
 
@@ -20,12 +23,14 @@ class IgnoreOnFirstLoadProp:
     pass
 
 
-class OptionalProp(CallableProp, IgnoreOnFirstLoadProp):
+class OptionalProp(CallableProp[T], IgnoreOnFirstLoadProp):
     pass
 
 
-class DeferredProp(CallableProp, MergeableProp, IgnoreOnFirstLoadProp):
-    def __init__(self, prop: Any, group: str, merge: bool = False) -> None:
+class DeferredProp(CallableProp[T], MergeableProp, IgnoreOnFirstLoadProp):
+    def __init__(
+        self, prop: T | Callable[[], T], group: str, merge: bool = False
+    ) -> None:
         super().__init__(prop)
         self.group = group
         self.merge = merge
@@ -34,6 +39,6 @@ class DeferredProp(CallableProp, MergeableProp, IgnoreOnFirstLoadProp):
         return self.merge
 
 
-class MergeProp(CallableProp, MergeableProp):
+class MergeProp(CallableProp[T], MergeableProp):
     def should_merge(self) -> bool:
         return True

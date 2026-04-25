@@ -125,9 +125,10 @@ class BaseInertiaResponseMixin:
         if _deferred_props:
             _page["deferredProps"] = _deferred_props
 
-        _merge_props = self.build_merge_props()
-        if _merge_props:
-            _page["mergeProps"] = _merge_props
+        _merge_kinds = self.build_merge_kinds()
+        for field_name, values in _merge_kinds.items():
+            if values:
+                _page[field_name] = values
 
         _once_props = self.build_once_props()
         if _once_props:
@@ -197,16 +198,32 @@ class BaseInertiaResponseMixin:
 
         return _deferred_props
 
-    def build_merge_props(self) -> list[str]:
-        return [
-            key
-            for key, prop in self.props.items()
-            if (
-                isinstance(prop, MergeableProp)
-                and prop.should_merge()
-                and key not in self.request.reset_keys()
-            )
-        ]
+    def build_merge_kinds(self) -> dict[str, list[str]]:
+        """Returns the four merge-metadata arrays. Empty arrays mean "don't emit"."""
+        out: dict[str, list[str]] = {
+            "mergeProps": [],
+            "prependProps": [],
+            "deepMergeProps": [],
+            "matchPropsOn": [],
+        }
+        reset = set(self.request.reset_keys())
+        for key, prop in self.props.items():
+            if not isinstance(prop, MergeableProp):
+                continue
+            if not prop.should_merge():
+                continue
+            if key in reset:
+                continue
+            strategy = prop.merge_strategy()
+            if strategy == "append":
+                out["mergeProps"].append(key)
+            elif strategy == "prepend":
+                out["prependProps"].append(key)
+            elif strategy == "deep":
+                out["deepMergeProps"].append(key)
+            for path in prop.match_on():
+                out["matchPropsOn"].append(f"{key}.{path}")
+        return out
 
     def build_first_load(self, data: Any) -> str:
         context, template = self.build_first_load_context_and_template(data)

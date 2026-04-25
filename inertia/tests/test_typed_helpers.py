@@ -4,14 +4,16 @@ from importlib.resources import files
 from unittest import TestCase
 
 from inertia.prop_classes import (
+    DeepMergeProp,
     DeferredProp,
     IgnoreOnFirstLoadProp,
     MergeableProp,
     MergeProp,
     OnceProp,
     OptionalProp,
+    PrependProp,
 )
-from inertia.utils import defer, lazy, merge, once, optional
+from inertia.utils import deep_merge, defer, lazy, merge, once, optional, prepend
 
 
 class PyTypedMarkerTestCase(TestCase):
@@ -73,6 +75,13 @@ class DeferHelperTestCase(TestCase):
     def test_resolves_callable_value(self):
         self.assertEqual(defer(lambda: "Basketball")(), "Basketball")
 
+    def test_default_match_on_is_empty(self):
+        self.assertEqual(defer(lambda: "x").match_on(), [])
+
+    def test_match_on_kwarg_is_propagated(self):
+        prop = defer(lambda: "x", merge=True, match_on=["id", "data.id"])
+        self.assertEqual(prop.match_on(), ["id", "data.id"])
+
 
 class MergeHelperTestCase(TestCase):
     def test_returns_merge_prop(self):
@@ -85,6 +94,62 @@ class MergeHelperTestCase(TestCase):
 
     def test_resolves_callable_value(self):
         self.assertEqual(merge(lambda: "Basketball")(), "Basketball")
+
+    def test_default_strategy_is_append(self):
+        self.assertEqual(merge(lambda: "x").merge_strategy(), "append")
+
+    def test_default_match_on_is_empty(self):
+        self.assertEqual(merge(lambda: "x").match_on(), [])
+
+    def test_match_on_kwarg_is_propagated(self):
+        prop = merge(lambda: "x", match_on=["id", "data.id"])
+        self.assertEqual(prop.match_on(), ["id", "data.id"])
+
+
+class PrependHelperTestCase(TestCase):
+    def test_returns_prepend_prop(self):
+        prop = prepend(lambda: "Basketball")
+        self.assertIsInstance(prop, PrependProp)
+        self.assertIsInstance(prop, MergeableProp)
+
+    def test_always_merges(self):
+        self.assertTrue(prepend(lambda: "x").should_merge())
+
+    def test_strategy_is_prepend(self):
+        self.assertEqual(prepend(lambda: "x").merge_strategy(), "prepend")
+
+    def test_default_match_on_is_empty(self):
+        self.assertEqual(prepend(lambda: "x").match_on(), [])
+
+    def test_match_on_kwarg_is_propagated(self):
+        prop = prepend(lambda: "x", match_on=["id"])
+        self.assertEqual(prop.match_on(), ["id"])
+
+    def test_resolves_callable_value(self):
+        self.assertEqual(prepend(lambda: "Basketball")(), "Basketball")
+
+
+class DeepMergeHelperTestCase(TestCase):
+    def test_returns_deep_merge_prop(self):
+        prop = deep_merge(lambda: {"a": 1})
+        self.assertIsInstance(prop, DeepMergeProp)
+        self.assertIsInstance(prop, MergeableProp)
+
+    def test_always_merges(self):
+        self.assertTrue(deep_merge(lambda: {"a": 1}).should_merge())
+
+    def test_strategy_is_deep(self):
+        self.assertEqual(deep_merge(lambda: {"a": 1}).merge_strategy(), "deep")
+
+    def test_default_match_on_is_empty(self):
+        self.assertEqual(deep_merge(lambda: {"a": 1}).match_on(), [])
+
+    def test_match_on_kwarg_is_propagated(self):
+        prop = deep_merge(lambda: {"a": 1}, match_on=["nested.id", "id"])
+        self.assertEqual(prop.match_on(), ["nested.id", "id"])
+
+    def test_resolves_callable_value(self):
+        self.assertEqual(deep_merge(lambda: {"a": 1})(), {"a": 1})
 
 
 class OnceHelperTestCase(TestCase):

@@ -8,7 +8,14 @@ from django.db import models
 from django.db.models.query import QuerySet
 from django.forms.models import model_to_dict as base_model_to_dict
 
-from .prop_classes import DeferredProp, MergeProp, OnceProp, OptionalProp
+from .prop_classes import (
+    DeepMergeProp,
+    DeferredProp,
+    MergeProp,
+    OnceProp,
+    OptionalProp,
+    PrependProp,
+)
 
 T = TypeVar("T")
 
@@ -50,13 +57,37 @@ def optional(prop: T | Callable[[], T]) -> OptionalProp[T]:
 
 
 def defer(
-    prop: T | Callable[[], T], group: str = "default", merge: bool = False
+    prop: T | Callable[[], T],
+    group: str = "default",
+    merge: bool = False,
+    *,
+    match_on: list[str] | None = None,
 ) -> DeferredProp[T]:
-    return DeferredProp(prop, group=group, merge=merge)
+    return DeferredProp(prop, group=group, merge=merge, match_on=match_on)
 
 
-def merge(prop: T | Callable[[], T]) -> MergeProp[T]:
-    return MergeProp(prop)
+def merge(
+    prop: T | Callable[[], T],
+    *,
+    match_on: list[str] | None = None,
+) -> MergeProp[T]:
+    return MergeProp(prop, match_on=match_on)
+
+
+def prepend(
+    prop: T | Callable[[], T],
+    *,
+    match_on: list[str] | None = None,
+) -> PrependProp[T]:
+    return PrependProp(prop, match_on=match_on)
+
+
+def deep_merge(
+    prop: T | Callable[[], T],
+    *,
+    match_on: list[str] | None = None,
+) -> DeepMergeProp[T]:
+    return DeepMergeProp(prop, match_on=match_on)
 
 
 def once(

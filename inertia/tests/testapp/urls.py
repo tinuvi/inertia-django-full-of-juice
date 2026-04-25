@@ -40,4 +40,11 @@ urlpatterns = [
     path("once-expires-in-td/", views.once_expires_in_timedelta_test),
     path("once-expires-in-int/", views.once_expires_in_int_test),
     path("once-expires-at-dt/", views.once_expires_at_datetime_test),
+    path("prepend/", views.prepend_test),
+    path("prepend-match-on/", views.prepend_match_on_test),
+    path("deep-merge/", views.deep_merge_test),
+    path("deep-merge-match-on/", views.deep_merge_match_on_test),
+    path("merge-match-on/", views.merge_match_on_test),
+    path("merge-match-on-multiple/", views.merge_match_on_multiple_test),
+    path("defer-match-on/", views.defer_match_on_test),
 ]

@@ -5,6 +5,7 @@ from django.shortcuts import redirect
 from django.utils.decorators import decorator_from_middleware
 
 from inertia import (
+    deep_merge,
     defer,
     errors_response,
     inertia,
@@ -14,6 +15,7 @@ from inertia import (
     merge,
     once,
     optional,
+    prepend,
     preserve_fragment,
     render,
     share,
@@ -286,4 +288,54 @@ ONCE_FIXED_DATETIME = datetime(2030, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
 def once_expires_at_datetime_test(request):
     return {
         "plans": once(lambda: ["A"], expires_at=ONCE_FIXED_DATETIME),
+    }
+
+
+@inertia("TestComponent")
+def prepend_test(request):
+    return {
+        "name": "Brandon",
+        "notifications": prepend(lambda: ["a", "b"]),
+    }
+
+
+@inertia("TestComponent")
+def prepend_match_on_test(request):
+    return {
+        "notifications": prepend(lambda: ["a", "b"], match_on=["id"]),
+    }
+
+
+@inertia("TestComponent")
+def deep_merge_test(request):
+    return {
+        "filters": deep_merge(lambda: {"a": 1}),
+    }
+
+
+@inertia("TestComponent")
+def deep_merge_match_on_test(request):
+    return {
+        "filters": deep_merge(lambda: {"a": 1}, match_on=["nested.id", "id"]),
+    }
+
+
+@inertia("TestComponent")
+def merge_match_on_test(request):
+    return {
+        "users": merge(lambda: [{"id": 1}], match_on=["id"]),
+    }
+
+
+@inertia("TestComponent")
+def merge_match_on_multiple_test(request):
+    return {
+        "posts": merge(lambda: [{"id": 1}], match_on=["data.id", "id"]),
+    }
+
+
+@inertia("TestComponent")
+def defer_match_on_test(request):
+    return {
+        "users": defer(lambda: [{"id": 1}], merge=True, match_on=["id"]),
     }

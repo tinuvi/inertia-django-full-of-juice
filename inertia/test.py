@@ -100,6 +100,9 @@ def inertia_page(
     template_data=None,
     deferred_props=None,
     merge_props=None,
+    prepend_props=None,
+    deep_merge_props=None,
+    match_props_on=None,
     once_props=None,
     encrypt_history: bool = False,
     clear_history: bool = False,
@@ -128,8 +131,17 @@ def inertia_page(
     if deferred_props:
         _page["deferredProps"] = deferred_props
 
-    if merge_props:
+    if merge_props is not None:
         _page["mergeProps"] = merge_props
+
+    if prepend_props is not None:
+        _page["prependProps"] = prepend_props
+
+    if deep_merge_props is not None:
+        _page["deepMergeProps"] = deep_merge_props
+
+    if match_props_on is not None:
+        _page["matchPropsOn"] = match_props_on
 
     if once_props is not None:
         _page["onceProps"] = once_props

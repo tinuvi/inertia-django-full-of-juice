@@ -253,6 +253,80 @@ class MergePropsTestCase(InertiaTestCase):
         )
 
 
+class PrependPropsTestCase(InertiaTestCase):
+    def test_prepend_prop_appears_in_prepend_props(self):
+        page = self.inertia.get("/prepend/").json()
+        self.assertEqual(page.get("prependProps"), ["notifications"])
+        self.assertNotIn("mergeProps", page)
+        self.assertNotIn("matchPropsOn", page)
+
+    def test_prepend_prop_with_match_on(self):
+        page = self.inertia.get("/prepend-match-on/").json()
+        self.assertEqual(page.get("prependProps"), ["notifications"])
+        self.assertEqual(page.get("matchPropsOn"), ["notifications.id"])
+
+    def test_reset_excludes_from_prepend_and_match_on(self):
+        page = self.inertia.get(
+            "/prepend-match-on/",
+            HTTP_X_INERTIA_RESET="notifications",
+        ).json()
+        self.assertNotIn("prependProps", page)
+        self.assertNotIn("matchPropsOn", page)
+
+
+class DeepMergePropsTestCase(InertiaTestCase):
+    def test_deep_merge_prop_appears_in_deep_merge_props(self):
+        page = self.inertia.get("/deep-merge/").json()
+        self.assertEqual(page.get("deepMergeProps"), ["filters"])
+        self.assertNotIn("mergeProps", page)
+        self.assertNotIn("prependProps", page)
+        self.assertNotIn("matchPropsOn", page)
+
+    def test_deep_merge_with_match_on_paths(self):
+        page = self.inertia.get("/deep-merge-match-on/").json()
+        self.assertEqual(page.get("deepMergeProps"), ["filters"])
+        self.assertEqual(
+            page.get("matchPropsOn"),
+            ["filters.nested.id", "filters.id"],
+        )
+
+    def test_reset_excludes_from_deep_merge_and_match_on(self):
+        page = self.inertia.get(
+            "/deep-merge-match-on/",
+            HTTP_X_INERTIA_RESET="filters",
+        ).json()
+        self.assertNotIn("deepMergeProps", page)
+        self.assertNotIn("matchPropsOn", page)
+
+
+class MergeMatchOnTestCase(InertiaTestCase):
+    def test_merge_with_match_on_emits_match_props_on(self):
+        page = self.inertia.get("/merge-match-on/").json()
+        self.assertEqual(page.get("mergeProps"), ["users"])
+        self.assertEqual(page.get("matchPropsOn"), ["users.id"])
+
+    def test_merge_with_multiple_match_on_paths_in_order(self):
+        page = self.inertia.get("/merge-match-on-multiple/").json()
+        self.assertEqual(page.get("mergeProps"), ["posts"])
+        self.assertEqual(
+            page.get("matchPropsOn"),
+            ["posts.data.id", "posts.id"],
+        )
+
+    def test_merge_without_match_on_emits_only_merge_props(self):
+        page = self.inertia.get("/merge/").json()
+        self.assertIn("mergeProps", page)
+        self.assertNotIn("matchPropsOn", page)
+
+
+class DeferMatchOnTestCase(InertiaTestCase):
+    def test_defer_merge_with_match_on(self):
+        page = self.inertia.get("/defer-match-on/").json()
+        self.assertEqual(page.get("mergeProps"), ["users"])
+        self.assertEqual(page.get("matchPropsOn"), ["users.id"])
+        self.assertEqual(page.get("deferredProps"), {"default": ["users"]})
+
+
 class MisconfiguredLayoutTestCase(InertiaTestCase):
     def test_with_props(self):
         with (

@@ -8,7 +8,7 @@ from .http import (
     render,
 )
 from .share import share
-from .utils import defer, lazy, merge, once, optional
+from .utils import deep_merge, defer, lazy, merge, once, optional, prepend
 
 __all__ = [
     "InertiaResponse",
@@ -19,9 +19,11 @@ __all__ = [
     "preserve_fragment",
     "render",
     "share",
+    "deep_merge",
     "defer",
     "lazy",
     "merge",
     "once",
     "optional",
+    "prepend",
 ]

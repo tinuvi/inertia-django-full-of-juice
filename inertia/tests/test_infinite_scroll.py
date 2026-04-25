@@ -137,11 +137,12 @@ class InfiniteScrollTestCase(InertiaTestCase):
             },
         )
 
-    def test_partial_except_omits_value_but_still_emits_scroll_metadata(self):
-        # Decision: we walk ``self.props`` for scrollProps, mirroring
-        # ``build_merge_kinds`` and ``build_once_props``. So the
-        # registry entry survives even when partial-except removes the
-        # value from ``props``. Document this behavior in the test.
+    def test_partial_except_omits_value_and_strips_scroll_metadata(self):
+        # Mirroring Laravel's ``PropsResolver`` filtering, registry
+        # entries (``mergeProps``, ``scrollProps``) are stripped when
+        # the underlying prop is excluded by partial-except. The
+        # surviving prop ``name`` stays in ``props``, but ``items`` is
+        # removed from every registry that mentions it.
         page = self.inertia.get(
             "/infinite-scroll-partial/",
             HTTP_X_INERTIA_PARTIAL_DATA="name,items",
@@ -150,6 +151,5 @@ class InfiniteScrollTestCase(InertiaTestCase):
         ).json()
         self.assertNotIn("items", page["props"])
         self.assertIn("name", page["props"])
-        self.assertEqual(page.get("mergeProps"), ["items"])
-        self.assertIn("scrollProps", page)
-        self.assertEqual(page["scrollProps"]["items"]["reset"], False)
+        self.assertNotIn("mergeProps", page)
+        self.assertNotIn("scrollProps", page)

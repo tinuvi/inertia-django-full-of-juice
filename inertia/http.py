@@ -89,6 +89,40 @@ class BaseInertiaResponseMixin:
     props: dict[str, Any]
     template_data: dict[str, Any]
 
+    def _all_props(self) -> dict[str, Any]:
+        """Returns the merged shared + per-request props.
+
+        Mirrors Laravel's ``PropsResolver::resolve()``, which merges
+        shared props first and per-request props second so that
+        per-request props take precedence on key conflicts. Walking this
+        merged set means registries (once / deferred / merge / scroll)
+        pick up props injected via ``share(request, ...)``.
+        """
+        return {
+            **(self.request.inertia),
+            **self.props,
+        }
+
+    def _is_included_in_partial(
+        self,
+        key: str,
+        *,
+        is_partial: bool,
+        partial_keys: list[str],
+        partial_except_keys: list[str],
+    ) -> bool:
+        """Mirrors Laravel's ``PropsResolver::isIncludedInPartialMetadata``.
+
+        On a non-partial request, every key is included. On a partial
+        request, the key must appear in ``X-Inertia-Partial-Data`` (when
+        set) and must not appear in ``X-Inertia-Partial-Except``.
+        """
+        if not is_partial:
+            return True
+        if partial_keys and key not in partial_keys:
+            return False
+        return key not in partial_except_keys
+
     def page_data(self) -> dict[str, Any]:
         clear_history = self.request.session.pop(INERTIA_SESSION_CLEAR_HISTORY, False)
         if not isinstance(clear_history, bool):
@@ -142,10 +176,7 @@ class BaseInertiaResponseMixin:
         return _page
 
     def build_props(self) -> Any:
-        _props = {
-            **(self.request.inertia),
-            **self.props,
-        }
+        _props = self._all_props()
 
         _props.setdefault("errors", {})
 
@@ -182,14 +213,29 @@ class BaseInertiaResponseMixin:
         return deep_transform_callables(_props)
 
     def build_once_props(self) -> dict[str, dict[str, Any]]:
+        is_partial = self.request.is_a_partial_render(self.component)
+        partial_keys = self.request.partial_keys() if is_partial else []
+        partial_except_keys = self.request.partial_except_keys() if is_partial else []
+        reset = set(self.request.reset_keys())
+
         _once_props: dict[str, dict[str, Any]] = {}
-        for key, prop in self.props.items():
-            if isinstance(prop, OnceProp):
-                effective_key = prop.key or key
-                _once_props[effective_key] = {
-                    "prop": key,
-                    "expiresAt": prop.expires_at,
-                }
+        for key, prop in self._all_props().items():
+            if not isinstance(prop, OnceProp):
+                continue
+            if key in reset:
+                continue
+            if not self._is_included_in_partial(
+                key,
+                is_partial=is_partial,
+                partial_keys=partial_keys,
+                partial_except_keys=partial_except_keys,
+            ):
+                continue
+            effective_key = prop.key or key
+            _once_props[effective_key] = {
+                "prop": key,
+                "expiresAt": prop.expires_at,
+            }
         return _once_props
 
     def build_deferred_props(self) -> dict[str, Any] | None:
@@ -197,7 +243,7 @@ class BaseInertiaResponseMixin:
             return None
 
         _deferred_props: dict[str, Any] = {}
-        for key, prop in self.props.items():
+        for key, prop in self._all_props().items():
             if isinstance(prop, DeferredProp):
                 _deferred_props.setdefault(prop.group, []).append(key)
 
@@ -206,17 +252,29 @@ class BaseInertiaResponseMixin:
     def build_scroll_props(self) -> dict[str, dict[str, Any]]:
         """Returns the v3 ``scrollProps`` registry.
 
-        Walks ``self.props`` for :class:`InfiniteScrollProp` instances and
-        emits one entry per prop with the four metadata keys plus a
-        ``reset`` boolean derived from ``X-Inertia-Reset``. The entry is
-        emitted regardless of partial-include/except headers — matching
-        how :meth:`build_merge_kinds` and :meth:`build_once_props` walk
-        ``self.props`` directly.
+        Walks the merged shared + per-request props for
+        :class:`InfiniteScrollProp` instances and emits one entry per
+        prop with the four metadata keys plus a ``reset`` boolean derived
+        from ``X-Inertia-Reset``. The entry is suppressed when the prop
+        is filtered out by ``X-Inertia-Partial-Data`` /
+        ``X-Inertia-Partial-Except`` — mirroring how the underlying
+        prop value would not survive into the response.
         """
+        is_partial = self.request.is_a_partial_render(self.component)
+        partial_keys = self.request.partial_keys() if is_partial else []
+        partial_except_keys = self.request.partial_except_keys() if is_partial else []
         reset = set(self.request.reset_keys())
+
         out: dict[str, dict[str, Any]] = {}
-        for key, prop in self.props.items():
+        for key, prop in self._all_props().items():
             if not isinstance(prop, InfiniteScrollProp):
+                continue
+            if not self._is_included_in_partial(
+                key,
+                is_partial=is_partial,
+                partial_keys=partial_keys,
+                partial_except_keys=partial_except_keys,
+            ):
                 continue
             metadata = prop.scroll_metadata()
             metadata["reset"] = key in reset
@@ -231,13 +289,24 @@ class BaseInertiaResponseMixin:
             "deepMergeProps": [],
             "matchPropsOn": [],
         }
+        is_partial = self.request.is_a_partial_render(self.component)
+        partial_keys = self.request.partial_keys() if is_partial else []
+        partial_except_keys = self.request.partial_except_keys() if is_partial else []
         reset = set(self.request.reset_keys())
-        for key, prop in self.props.items():
+
+        for key, prop in self._all_props().items():
             if not isinstance(prop, MergeableProp):
                 continue
             if not prop.should_merge():
                 continue
             if key in reset:
+                continue
+            if not self._is_included_in_partial(
+                key,
+                is_partial=is_partial,
+                partial_keys=partial_keys,
+                partial_except_keys=partial_except_keys,
+            ):
                 continue
             strategy = prop.merge_strategy()
             if strategy == "append":

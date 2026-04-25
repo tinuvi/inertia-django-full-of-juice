@@ -52,4 +52,17 @@ urlpatterns = [
     path("infinite-scroll-pagination/", views.infinite_scroll_pagination_test),
     path("infinite-scroll-two/", views.infinite_scroll_two_props_test),
     path("infinite-scroll-partial/", views.infinite_scroll_partial_test),
+    path("share-once/", views.share_once_test),  # type: ignore[arg-type]
+    path("share-defer/", views.share_defer_test),  # type: ignore[arg-type]
+    path("share-merge/", views.share_merge_test),  # type: ignore[arg-type]
+    path("share-prepend/", views.share_prepend_test),  # type: ignore[arg-type]
+    path("share-deep-merge/", views.share_deep_merge_test),  # type: ignore[arg-type]
+    path("share-scroll/", views.share_scroll_test),  # type: ignore[arg-type]
+    path("share-collision/", views.share_collision_test),  # type: ignore[arg-type]
+    path("filter-merge/", views.filter_merge_props_test),
+    path("filter-prepend/", views.filter_prepend_props_test),
+    path("filter-deep-merge/", views.filter_deep_merge_props_test),
+    path("filter-match-on/", views.filter_match_on_props_test),
+    path("filter-once/", views.filter_once_props_test),
+    path("filter-scroll/", views.filter_scroll_props_test),
 ]

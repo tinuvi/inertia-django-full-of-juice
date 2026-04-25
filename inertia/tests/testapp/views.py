@@ -403,3 +403,178 @@ def infinite_scroll_partial_test(request):
             current_page=2,
         ),
     }
+
+
+# --- Shared-prop registry views (Fix #1) ---
+
+
+class ShareOnceMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def process_request(self, request):
+        share(
+            request,
+            shared_plans=once(lambda: ["A", "B"]),
+        )
+
+
+@decorator_from_middleware(ShareOnceMiddleware)
+@inertia("TestComponent")
+def share_once_test(request):
+    return {"name": "Brian"}
+
+
+class ShareDeferMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def process_request(self, request):
+        share(
+            request,
+            shared_sport=defer(lambda: "Basketball"),
+        )
+
+
+@decorator_from_middleware(ShareDeferMiddleware)
+@inertia("TestComponent")
+def share_defer_test(request):
+    return {"name": "Brian"}
+
+
+class ShareMergeMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def process_request(self, request):
+        share(
+            request,
+            shared_users=merge(lambda: [{"id": 1}], match_on=["id"]),
+        )
+
+
+@decorator_from_middleware(ShareMergeMiddleware)
+@inertia("TestComponent")
+def share_merge_test(request):
+    return {"name": "Brian"}
+
+
+class SharePrependMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def process_request(self, request):
+        share(
+            request,
+            shared_notifications=prepend(lambda: ["a"]),
+        )
+
+
+@decorator_from_middleware(SharePrependMiddleware)
+@inertia("TestComponent")
+def share_prepend_test(request):
+    return {"name": "Brian"}
+
+
+class ShareDeepMergeMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def process_request(self, request):
+        share(
+            request,
+            shared_filters=deep_merge(lambda: {"a": 1}),
+        )
+
+
+@decorator_from_middleware(ShareDeepMergeMiddleware)
+@inertia("TestComponent")
+def share_deep_merge_test(request):
+    return {"name": "Brian"}
+
+
+class ShareScrollMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def process_request(self, request):
+        share(
+            request,
+            shared_items=infinite_scroll(
+                lambda: [{"id": 1}],
+                request,
+                current_page=2,
+            ),
+        )
+
+
+@decorator_from_middleware(ShareScrollMiddleware)
+@inertia("TestComponent")
+def share_scroll_test(request):
+    return {"name": "Brian"}
+
+
+# Per-request prop overrides a shared prop with the same key
+class ShareCollisionMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def process_request(self, request):
+        share(request, name="from-shared")
+
+
+@decorator_from_middleware(ShareCollisionMiddleware)
+@inertia("TestComponent")
+def share_collision_test(request):
+    return {"name": "from-per-request"}
+
+
+# --- Registry filtering on partial reloads (Fix #2) ---
+
+
+@inertia("TestComponent")
+def filter_merge_props_test(request):
+    return {
+        "foo": merge(lambda: [1]),
+        "bar": merge(lambda: [2]),
+    }
+
+
+@inertia("TestComponent")
+def filter_prepend_props_test(request):
+    return {
+        "foo": prepend(lambda: [1]),
+        "bar": prepend(lambda: [2]),
+    }
+
+
+@inertia("TestComponent")
+def filter_deep_merge_props_test(request):
+    return {
+        "foo": deep_merge(lambda: {"a": 1}),
+        "bar": deep_merge(lambda: {"b": 2}),
+    }
+
+
+@inertia("TestComponent")
+def filter_match_on_props_test(request):
+    return {
+        "foo": merge(lambda: [{"id": 1}], match_on=["id"]),
+        "bar": merge(lambda: [{"id": 2}], match_on=["id"]),
+    }
+
+
+@inertia("TestComponent")
+def filter_once_props_test(request):
+    return {
+        "foo": once(lambda: ["A"]),
+        "bar": once(lambda: ["B"]),
+    }
+
+
+@inertia("TestComponent")
+def filter_scroll_props_test(request):
+    return {
+        "foo": infinite_scroll(lambda: [{"id": 1}], request, current_page=1),
+        "bar": infinite_scroll(lambda: [{"id": 2}], request, current_page=2),
+    }

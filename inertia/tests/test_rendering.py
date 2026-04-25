@@ -220,6 +220,11 @@ class MergePropsTestCase(InertiaTestCase):
         )
 
     def test_deferred_merge_props_are_included_on_subsequent_load(self):
+        # Mirrors Laravel's ``PropsResolver::collectMergeableMetadata``:
+        # on a partial render, ``mergeProps`` only includes the keys the
+        # client asked for. ``sport`` is not in
+        # ``X-Inertia-Partial-Data`` here, so it is stripped from the
+        # registry as well as from the resolved props.
         self.assertJSONResponse(
             self.inertia.get(
                 "/merge/",
@@ -231,7 +236,7 @@ class MergePropsTestCase(InertiaTestCase):
                 props={
                     "team": "Penguins",
                 },
-                merge_props=["sport", "team"],
+                merge_props=["team"],
             ),
         )
 

@@ -1,8 +1,6 @@
-![image](https://user-images.githubusercontent.com/6599653/114456558-032e2200-9bab-11eb-88bc-a19897f417ba.png)
-
 # Inertia.js Django Adapter
 
-[Official Docs and installation instructions are available here](https://inertiajs.github.io/inertia-django/)
+This adapter supports the Inertia.js v3 protocol, including once props, prepend / deep-merge variants, `matchPropsOn`, infinite scroll, fragment preservation across redirects, and the `useHttp` validation-response shape.
 
 ## Installation
 
@@ -48,20 +46,27 @@ You can also check out the official Inertia docs at https://inertiajs.com/.
 
 ### CSRF
 
-Django's CSRF tokens are tightly coupled with rendering templates so Inertia Django automatically handles adding the CSRF cookie for you to each Inertia response. Because the default names Django users for the CSRF headers don't match Axios (the Javascript request library Inertia uses), we'll need to either modify Axios's defaults OR Django's settings.
+Django's CSRF tokens are tightly coupled with rendering templates, so Inertia Django automatically handles adding the CSRF cookie to each Inertia response. The Inertia.js v3 client ships with its own XHR layer (Axios is no longer required) and reads the CSRF cookie / writes the CSRF header using its own default names, which don't match Django's. You'll need to either configure the v3 client OR rename the Django settings so they line up.
+
+By default:
+
+- v3 client: `XSRF-TOKEN` cookie, `X-XSRF-TOKEN` header.
+- Django: `csrftoken` cookie, `X-CSRFToken` header.
 
 **You only need to choose one of the following options, just pick whichever makes the most sense to you!**
 
-In your `entry.js` file
+Option 1: configure the Inertia v3 HTTP client at boot (in your `entry.js`):
 
 ```javascript
-axios.defaults.xsrfHeaderName = "X-CSRFToken";
-axios.defaults.xsrfCookieName = "csrftoken";
+import { http } from '@inertiajs/core'
+
+http.setClient({
+  xsrfCookieName: 'csrftoken',
+  xsrfHeaderName: 'X-CSRFToken',
+})
 ```
 
-OR
-
-In your Django `settings.py` file
+Option 2: rename Django settings to match the v3 defaults (in your `settings.py`):
 
 ```python
 CSRF_HEADER_NAME = 'HTTP_X_XSRF_TOKEN'
@@ -253,6 +258,140 @@ def example(request):
   }
 ```
 
+### Prepend Props
+
+`prepend` is the mirror of `merge`. Instead of appending newly loaded values to the existing client-side prop, the v3 client prepends them. Useful for chat logs, activity feeds, and any list where new items belong at the top.
+
+```python
+from inertia import inertia, prepend
+
+@inertia('ExampleComponent')
+def example(request):
+  return {
+    'messages': prepend(lambda: latest_messages()),
+  }
+```
+
+### Deep Merge Props
+
+`deep_merge` recursively merges objects rather than overwriting them. Use it when a prop is a nested dictionary and partial reloads should layer new keys onto the existing client-side state.
+
+```python
+from inertia import deep_merge, inertia
+
+@inertia('ExampleComponent')
+def example(request):
+  return {
+    'filters': deep_merge(lambda: build_filters()),
+  }
+```
+
+### Match props on
+
+When a list is being merged (`merge`, `prepend`, `deep_merge`) or deferred-and-merged (`defer(..., merge=True)`), pass `match_on=[...]` to tell the v3 client which field(s) on each item identify it. The client uses those paths to dedup matching items instead of blindly concatenating, which is what you want for paginated lists, infinite scroll, and any merge that may overlap with already-loaded items.
+
+```python
+from inertia import inertia, merge
+
+@inertia('Users/Index')
+def index(request):
+    return {
+        'users': merge(lambda: list_users(), match_on=['id']),
+    }
+```
+
+`match_on=` is supported on `merge`, `prepend`, `deep_merge`, and `defer`. Each entry is a dot-path resolved against an item in the prop's list.
+
+### Once Props
+
+`once` props are computed on the server, sent to the client, and then cached there. On the next visit, the client signals that it already has them (via `X-Inertia-Except-Once-Props`) and the server skips resolving the callable entirely. This is ideal for data that is expensive to compute but rarely changes per-user — pricing plans, feature flags, static config, etc.
+
+```python
+from datetime import timedelta
+from inertia import inertia, once
+
+@inertia('Billing/Upgrade')
+def upgrade(request):
+    return {
+        'plans': once(lambda: load_plans()),
+        'plans_with_ttl': once(lambda: load_plans(), expires_in=timedelta(hours=1)),
+        'plans_custom_key': once(lambda: load_plans(), key='plans-v2'),
+    }
+```
+
+Supported keyword arguments:
+
+- `key`: override the cache key (defaults to the prop name). Bump it when the underlying shape changes to invalidate stale client caches.
+- `fresh`: force the server to re-resolve on this response even if the client claims to have cached it.
+- `expires_in`: a `timedelta` or integer seconds. Computed into a unix-ms expiry sent to the client.
+- `expires_at`: a `datetime` (timezone-aware preferred) or a unix-ms integer.
+
+`expires_in` and `expires_at` are mutually exclusive.
+
+### Infinite Scroll
+
+`infinite_scroll` wraps a paginated prop so the v3 client can drive append / prepend behavior from the `X-Inertia-Infinite-Scroll-Merge-Intent` header. The helper takes the `request` as an explicit second positional argument because Django doesn't expose an implicit "current request" — pass the same `HttpRequest` your view received. The caller is responsible for computing pagination metadata; the helper itself doesn't know about `Paginator` or any other paging abstraction.
+
+```python
+from inertia import inertia, infinite_scroll
+from .models import User
+
+@inertia('Users/Index')
+def index(request):
+    page = int(request.GET.get('page', 1))
+    page_size = 20
+    qs = User.objects.all().order_by('id')
+    users = list(qs[(page - 1) * page_size : page * page_size])
+    total = qs.count()
+    has_next = page * page_size < total
+    return {
+        'users': infinite_scroll(
+            users,
+            request,
+            page_name='page',
+            current_page=page,
+            previous_page=page - 1 if page > 1 else None,
+            next_page=page + 1 if has_next else None,
+            match_on=['id'],
+        ),
+    }
+```
+
+The prop emits a `scrollProps` entry on the page object with `pageName`, `previousPage`, `nextPage`, `currentPage`, and a `reset` boolean derived from `X-Inertia-Reset`. Combined with `match_on=['id']`, the v3 client will dedup overlapping pages by item id.
+
+### Preserving fragments across redirects
+
+Browsers don't send the URL fragment (the `#section` part) to the server, but the v3 client tracks it locally. When a view redirects after handling a request, you can flag the response so the client carries the fragment over to the redirect target.
+
+```python
+from inertia import preserve_fragment
+from django.shortcuts import redirect
+
+def update(request):
+    # ... handle update ...
+    preserve_fragment(request)
+    return redirect('/settings')
+```
+
+Additionally, `InertiaMiddleware` automatically converts any redirect response whose `Location` contains a `#fragment` (e.g. `redirect('/foo#section')`) on an Inertia request into a `409 + X-Inertia-Redirect`, so the v3 client honors the fragment without any extra work on your part.
+
+### Validation responses for `useHttp`
+
+The v3 frontend ships a `useHttp` hook for non-Inertia XHR calls (think: small async actions that don't navigate). Unlike the Inertia visit flow, `useHttp` expects a `422` JSON response with the shape `{"message": "...", "errors": {field: msg}}` on validation failure. `errors_response()` builds exactly that.
+
+```python
+from inertia import errors_response
+
+def submit(request):
+    form = MyForm(request.POST)
+    if not form.is_valid():
+        errors = {field: errs[0] for field, errs in form.errors.items()}
+        return errors_response(errors, message="Please fix the highlighted fields.")
+    # ... handle valid form ...
+```
+
+For regular Inertia visits (form submissions through `useForm` / `router.post`), the convention is still the redirect-back-with-flashed-errors pattern — projects flash validation errors to the session and re-share them on the next GET via `share(request, errors=...)`. `errors_response()` is specifically for the `useHttp` hook.
+
 ### Json Encoding
 
 Inertia Django ships with a custom JsonEncoder at `inertia.utils.InertiaJsonEncoder` that extends Django's
@@ -319,7 +458,7 @@ Inertia Django has a few different settings options that can be set from within 
 The default config is shown below
 
 ```python
-INERTIA_VERSION = '1.0' # defaults to '1.0'
+INERTIA_VERSION = '1.0' # defaults to '1.0'; bump this when shipping v3 to force a hard reload
 INERTIA_LAYOUT = 'layout.html' # required and has no default
 INERTIA_JSON_ENCODER = CustomJsonEncoder # defaults to inertia.utils.InertiaJsonEncoder
 INERTIA_SSR_URL = 'http://localhost:13714' # defaults to http://localhost:13714
@@ -362,6 +501,12 @@ class ExampleTestCase(InertiaTestCase):
 
 The inertia test helper also includes a special `inertia` client that pre-sets the inertia headers
 for you to simulate an inertia response. You can access and use it just like the normal client with commands like `self.inertia.get('/events/')`. When using the inertia client, inertia custom assertions **are not** enabled though, so only use it if you want to directly assert against the json response.
+
+Because v3 emits `encryptHistory`, `clearHistory`, and `preserveFragment` only when `True`, prefer asserting their effective value via `.get(..., False)` rather than direct key lookups in your tests:
+
+```python
+self.assertEqual(self.page().get("encryptHistory", False), True)
+```
 
 ## Examples
 

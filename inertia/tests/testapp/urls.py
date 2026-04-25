@@ -47,4 +47,9 @@ urlpatterns = [
     path("merge-match-on/", views.merge_match_on_test),
     path("merge-match-on-multiple/", views.merge_match_on_multiple_test),
     path("defer-match-on/", views.defer_match_on_test),
+    path("infinite-scroll/", views.infinite_scroll_test),
+    path("infinite-scroll-match-on/", views.infinite_scroll_match_on_test),
+    path("infinite-scroll-pagination/", views.infinite_scroll_pagination_test),
+    path("infinite-scroll-two/", views.infinite_scroll_two_props_test),
+    path("infinite-scroll-partial/", views.infinite_scroll_partial_test),
 ]

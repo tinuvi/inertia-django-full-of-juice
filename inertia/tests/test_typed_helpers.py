@@ -3,6 +3,9 @@ from datetime import datetime, timedelta, timezone
 from importlib.resources import files
 from unittest import TestCase
 
+from django.test import RequestFactory
+
+from inertia.infinite_scroll import InfiniteScrollProp, infinite_scroll
 from inertia.prop_classes import (
     DeepMergeProp,
     DeferredProp,
@@ -223,3 +226,99 @@ class OnceHelperTestCase(TestCase):
     def test_is_not_mergeable(self):
         prop = once(lambda: "x")
         self.assertNotIsInstance(prop, MergeableProp)
+
+
+class InfiniteScrollHelperTestCase(TestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def test_returns_infinite_scroll_prop(self):
+        prop = infinite_scroll(lambda: [], self.factory.get("/"))
+        self.assertIsInstance(prop, InfiniteScrollProp)
+        self.assertIsInstance(prop, MergeableProp)
+
+    def test_default_match_on_is_empty(self):
+        prop = infinite_scroll(lambda: [], self.factory.get("/"))
+        self.assertEqual(prop.match_on(), [])
+
+    def test_match_on_kwarg_is_propagated(self):
+        prop = infinite_scroll(
+            lambda: [],
+            self.factory.get("/"),
+            match_on=["id"],
+        )
+        self.assertEqual(prop.match_on(), ["id"])
+
+    def test_should_merge_is_true(self):
+        prop = infinite_scroll(lambda: [], self.factory.get("/"))
+        self.assertTrue(prop.should_merge())
+
+    def test_default_strategy_is_append(self):
+        prop = infinite_scroll(lambda: [], self.factory.get("/"))
+        self.assertEqual(prop.merge_strategy(), "append")
+
+    def test_prepend_intent_header_routes_to_prepend(self):
+        request = self.factory.get(
+            "/",
+            HTTP_X_INERTIA_INFINITE_SCROLL_MERGE_INTENT="prepend",
+        )
+        prop = infinite_scroll(lambda: [], request)
+        self.assertEqual(prop.merge_strategy(), "prepend")
+
+    def test_unknown_intent_falls_back_to_append(self):
+        request = self.factory.get(
+            "/",
+            HTTP_X_INERTIA_INFINITE_SCROLL_MERGE_INTENT="bogus",
+        )
+        prop = infinite_scroll(lambda: [], request)
+        self.assertEqual(prop.merge_strategy(), "append")
+
+    def test_append_intent_header_keeps_append(self):
+        request = self.factory.get(
+            "/",
+            HTTP_X_INERTIA_INFINITE_SCROLL_MERGE_INTENT="append",
+        )
+        prop = infinite_scroll(lambda: [], request)
+        self.assertEqual(prop.merge_strategy(), "append")
+
+    def test_scroll_metadata_returns_four_keys(self):
+        prop = infinite_scroll(
+            lambda: [],
+            self.factory.get("/"),
+            page_name="cursor",
+            previous_page=1,
+            next_page=3,
+            current_page=2,
+        )
+        self.assertEqual(
+            prop.scroll_metadata(),
+            {
+                "pageName": "cursor",
+                "previousPage": 1,
+                "nextPage": 3,
+                "currentPage": 2,
+            },
+        )
+
+    def test_scroll_metadata_defaults(self):
+        prop = infinite_scroll(lambda: [], self.factory.get("/"))
+        self.assertEqual(
+            prop.scroll_metadata(),
+            {
+                "pageName": "page",
+                "previousPage": None,
+                "nextPage": None,
+                "currentPage": None,
+            },
+        )
+
+    def test_resolves_callable_value(self):
+        prop = infinite_scroll(
+            lambda: [{"id": 1}],
+            self.factory.get("/"),
+        )
+        self.assertEqual(prop(), [{"id": 1}])
+
+    def test_resolves_static_value(self):
+        prop = infinite_scroll([{"id": 1}], self.factory.get("/"))
+        self.assertEqual(prop(), [{"id": 1}])

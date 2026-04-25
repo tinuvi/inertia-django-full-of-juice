@@ -104,6 +104,7 @@ def inertia_page(
     deep_merge_props=None,
     match_props_on=None,
     once_props=None,
+    scroll_props=None,
     encrypt_history: bool = False,
     clear_history: bool = False,
     preserve_fragment: bool = False,
@@ -145,6 +146,9 @@ def inertia_page(
 
     if once_props is not None:
         _page["onceProps"] = once_props
+
+    if scroll_props is not None:
+        _page["scrollProps"] = scroll_props
 
     return _page
 

@@ -10,6 +10,7 @@ from inertia import (
     errors_response,
     inertia,
     inertia_redirect,
+    infinite_scroll,
     lazy,
     location,
     merge,
@@ -338,4 +339,67 @@ def merge_match_on_multiple_test(request):
 def defer_match_on_test(request):
     return {
         "users": defer(lambda: [{"id": 1}], merge=True, match_on=["id"]),
+    }
+
+
+@inertia("TestComponent")
+def infinite_scroll_test(request):
+    return {
+        "items": infinite_scroll(
+            lambda: [{"id": 1}, {"id": 2}],
+            request,
+        ),
+    }
+
+
+@inertia("TestComponent")
+def infinite_scroll_match_on_test(request):
+    return {
+        "items": infinite_scroll(
+            lambda: [{"id": 1}, {"id": 2}],
+            request,
+            match_on=["id"],
+        ),
+    }
+
+
+@inertia("TestComponent")
+def infinite_scroll_pagination_test(request):
+    return {
+        "items": infinite_scroll(
+            lambda: [{"id": 1}, {"id": 2}],
+            request,
+            page_name="cursor",
+            previous_page=2,
+            next_page=4,
+            current_page=3,
+        ),
+    }
+
+
+@inertia("TestComponent")
+def infinite_scroll_two_props_test(request):
+    return {
+        "items": infinite_scroll(
+            lambda: [{"id": 1}, {"id": 2}],
+            request,
+            current_page=1,
+        ),
+        "feed": infinite_scroll(
+            lambda: [{"id": 10}],
+            request,
+            current_page=5,
+        ),
+    }
+
+
+@inertia("TestComponent")
+def infinite_scroll_partial_test(request):
+    return {
+        "name": "Brian",
+        "items": infinite_scroll(
+            lambda: [{"id": 1}, {"id": 2}],
+            request,
+            current_page=2,
+        ),
     }

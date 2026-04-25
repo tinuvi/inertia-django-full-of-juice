@@ -10,6 +10,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.template.loader import render_to_string
 
 from .helpers import deep_transform_callables
+from .infinite_scroll import InfiniteScrollProp
 from .prop_classes import DeferredProp, IgnoreOnFirstLoadProp, MergeableProp, OnceProp
 from .settings import settings
 
@@ -134,6 +135,10 @@ class BaseInertiaResponseMixin:
         if _once_props:
             _page["onceProps"] = _once_props
 
+        _scroll_props = self.build_scroll_props()
+        if _scroll_props:
+            _page["scrollProps"] = _scroll_props
+
         return _page
 
     def build_props(self) -> Any:
@@ -197,6 +202,26 @@ class BaseInertiaResponseMixin:
                 _deferred_props.setdefault(prop.group, []).append(key)
 
         return _deferred_props
+
+    def build_scroll_props(self) -> dict[str, dict[str, Any]]:
+        """Returns the v3 ``scrollProps`` registry.
+
+        Walks ``self.props`` for :class:`InfiniteScrollProp` instances and
+        emits one entry per prop with the four metadata keys plus a
+        ``reset`` boolean derived from ``X-Inertia-Reset``. The entry is
+        emitted regardless of partial-include/except headers — matching
+        how :meth:`build_merge_kinds` and :meth:`build_once_props` walk
+        ``self.props`` directly.
+        """
+        reset = set(self.request.reset_keys())
+        out: dict[str, dict[str, Any]] = {}
+        for key, prop in self.props.items():
+            if not isinstance(prop, InfiniteScrollProp):
+                continue
+            metadata = prop.scroll_metadata()
+            metadata["reset"] = key in reset
+            out[key] = metadata
+        return out
 
     def build_merge_kinds(self) -> dict[str, list[str]]:
         """Returns the four merge-metadata arrays. Empty arrays mean "don't emit"."""

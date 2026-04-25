@@ -7,6 +7,7 @@ from .http import (
     preserve_fragment,
     render,
 )
+from .infinite_scroll import infinite_scroll
 from .share import share
 from .utils import deep_merge, defer, lazy, merge, once, optional, prepend
 
@@ -15,6 +16,7 @@ __all__ = [
     "errors_response",
     "inertia",
     "inertia_redirect",
+    "infinite_scroll",
     "location",
     "preserve_fragment",
     "render",

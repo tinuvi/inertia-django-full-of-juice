@@ -142,3 +142,4 @@ cython_debug/
 
 .DS_Store
 .tool-versions
+.playwright-mcp

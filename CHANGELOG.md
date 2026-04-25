@@ -25,6 +25,9 @@ Adds support for the [Inertia.js v3 protocol](https://inertiajs.com/docs/v3/core
 - `InertiaMiddleware` now converts any redirect response whose `Location` contains a `#fragment` on an Inertia request into a `409 + X-Inertia-Redirect` so the v3 client preserves the fragment.
 - The first-load page shell now emits `<script data-page="app" type="application/json">…</script>` followed by a bare `<div id="app"></div>`, replacing the legacy `<div id="app" data-page="…">` form. The v3 client refuses to boot from the legacy attribute. The page-data JSON has `<`, `>`, and `&` escaped as `<` / `>` / `&` to prevent script-context breakouts. `inertia_div()` test helper updated accordingly.
 
+### Added
+- `sample_project/` — thin Django + React app exercising every server helper (`once`, `defer`, `merge`, `prepend`, `deep_merge`, `infinite_scroll`, `preserve_fragment`, `inertia_redirect`, `useForm` validation), with an `E2E_TESTING.md` regression checklist.
+
 ## [0.2.0] - 2026-04-25
 
 Type-hint and toolchain refresh.

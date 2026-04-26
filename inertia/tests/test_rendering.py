@@ -3,7 +3,6 @@ from datetime import datetime, timezone
 
 from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
-from pytest import warns
 
 from inertia import once
 from inertia.test import InertiaTestCase, inertia_div, inertia_page
@@ -85,14 +84,14 @@ class SubsequentLoadTestCase(InertiaTestCase):
 
 class LazyPropsTestCase(InertiaTestCase):
     def test_lazy_props_are_not_included(self):
-        with warns(DeprecationWarning):
+        with self.assertWarns(DeprecationWarning):
             self.assertJSONResponse(
                 self.inertia.get("/lazy/"),
                 inertia_page("lazy", props={"name": "Brian"}),
             )
 
     def test_lazy_props_are_included_when_requested(self):
-        with warns(DeprecationWarning):
+        with self.assertWarns(DeprecationWarning):
             self.assertJSONResponse(
                 self.inertia.get(
                     "/lazy/",

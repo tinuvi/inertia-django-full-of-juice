@@ -31,7 +31,7 @@ Imperative guidance for working on `inertia-django-full-of-juice`. Follow these 
 
 ## Documentation
 
-- Update `CHANGELOG.md` only when `./inertia/` (the library source) changes. Use the active `[X.Y.Z]` heading and `Added` / `Changed` / `Fixed` / `Removed` subsections. Skip it for repo-tooling or sample-project edits.
+- Update `CHANGELOG.md` only when `./inertia/` (the library source) changes, but not including the `tests` folder. Use the active `[X.Y.Z]` heading and `Added` / `Changed` / `Fixed` / `Removed` subsections. Skip it for repo-tooling or sample-project edits.
 - Update `sample_project/E2E_TESTING.md` whenever you add or change a v3 surface — add a row under the relevant section, not a one-off page.
 - Update `README.md` when public API, install steps, or supported Python/Django versions change.
 - Do **not** create new top-level docs (`*.md`) unless explicitly asked.

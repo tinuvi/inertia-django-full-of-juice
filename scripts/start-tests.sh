@@ -8,8 +8,10 @@ set -e
 REPORTS_FOLDER_PATH=tests-reports
 
 # Run the following: docker compose run remote-interpreter bash
-PYTHONPATH=. poetry run pytest -v -ra --cov=inertia \
---junitxml=$REPORTS_FOLDER_PATH/junit.xml \
---cov-report=xml:$REPORTS_FOLDER_PATH/coverage.xml \
---cov-report=html:$REPORTS_FOLDER_PATH/html \
---cov-report=term
+# Then you can explore the options by issuing: coverage run --source='.' manage.py test --help
+coverage run --source='.' manage.py test --durations 10 --timing --parallel
+# `combine` is required because coverage creates a database file for each group of tests
+coverage combine
+coverage report -m
+coverage html -d $REPORTS_FOLDER_PATH/html
+coverage xml -o $REPORTS_FOLDER_PATH/coverage.xml

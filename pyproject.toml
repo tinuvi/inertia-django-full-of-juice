@@ -25,16 +25,16 @@ django = "^5.2.11"
 requests = "^2.32.5"
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^8.3.5"
-pytest-cov = "^6.0.0"
-pytest-django = "^4.10.0"
+coverage = "~=7.13"
 ruff = "^0.15.2"
 mypy = "^1.20.2"
 django-stubs = {extras = ["compatible-mypy"], version = "^6.0.3"}
 types-requests = "^2.33.0.20260408"
+mutmut = "^3.5.0"
 
 [tool.ruff]
 target-version = "py314"
+extend-exclude = ["scripts"]
 
 [tool.ruff.lint]
 select = [
@@ -48,14 +48,6 @@ select = [
 ignore = ["E501"] # line too long, formatter will handle this
 unfixable = ["B", "SIM"]
 
-[tool.pytest.ini_options]
-DJANGO_SETTINGS_MODULE = "inertia.tests.settings"
-django_find_project = false
-
-[tool.coverage.run]
-relative_files = true
-source = ["inertia"]
-
 [tool.mypy]
 python_version = "3.14"
 plugins = ["mypy_django_plugin.main"]
@@ -66,4 +58,21 @@ exclude = [
 
 [tool.django-stubs]
 django_settings_module = "inertia.tests.settings"
+
+[tool.mutmut]
+paths_to_mutate = ["inertia"]
+pytest_add_cli_args_test_selection = [
+    "inertia/tests/test_encoder.py",
+    "inertia/tests/test_history.py",
+    "inertia/tests/test_infinite_scroll.py",
+    "inertia/tests/test_logging.py",
+    "inertia/tests/test_middleware.py",
+    "inertia/tests/test_registry_alignment.py",
+    "inertia/tests/test_rendering.py",
+    "inertia/tests/test_ssr.py",
+    "inertia/tests/test_tests.py",
+    "inertia/tests/test_typed_helpers.py",
+]
+also_copy = ["conftest.py"]
+debug = false
 

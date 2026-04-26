@@ -18,23 +18,58 @@ export default function Home() {
 			</p>
 			<ul>
 				<li>
-					<Link href="/lazy/">Lazy props (optional / defer / once)</Link>
-				</li>
-				<li>
-					<Link href="/lists/">
-						Lists (merge / prepend / deep_merge / match_on)
+					<Link href="/lazy/">
+						Lazy props (optional / defer / once / partial-data / partial-except
+						/ reset)
 					</Link>
 				</li>
 				<li>
-					<Link href="/feed/">Feed (infinite_scroll)</Link>
+					<Link href="/lists/">
+						Lists (merge / prepend / deep_merge / match_on / defer+merge)
+					</Link>
 				</li>
 				<li>
-					<Link href="/form/">Form (errors_response / inertia_redirect)</Link>
+					<Link href="/feed/">
+						Feed (infinite_scroll: append / prepend / reset)
+					</Link>
+				</li>
+				<li>
+					<Link href="/form/">Form (useForm + auto-injected errors)</Link>
+				</li>
+				<li>
+					<Link href="/validate/">
+						Validate (errors_response + plain XHR / useHttp pattern)
+					</Link>
+				</li>
+				<li>
+					<Link href="/history/">
+						History (encrypt_history / clear_history)
+					</Link>
+				</li>
+				<li>
+					<Link href="/method/">
+						Method (303 conversion on PUT/PATCH/DELETE)
+					</Link>
+				</li>
+				<li>
+					<Link href="/inertia-redirect/">
+						inertia_redirect() — 409 + X-Inertia-Redirect
+					</Link>
+				</li>
+				<li>
+					<a href="/location/">
+						location() — 409 + X-Inertia-Location (external)
+					</a>
 				</li>
 				<li>
 					<a href="/redirect-fragment/">
-						Fragment redirect (preserve_fragment)
+						Fragment redirect (middleware rewrites 302#frag → 409)
 					</a>
+				</li>
+				<li>
+					<Link href="/preserve-fragment/#users">
+						preserve_fragment() (carries `#users` through the redirect)
+					</Link>
 				</li>
 			</ul>
 		</main>

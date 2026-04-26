@@ -83,3 +83,4 @@ DJANGO_VITE = {
 INERTIA_LAYOUT = "base.html"
 INERTIA_SSR_ENABLED = os.getenv("INERTIA_SSR_ENABLED", "False").lower() == "true"
 INERTIA_SSR_URL = os.getenv("INERTIA_SSR_URL", "http://localhost:13714")
+INERTIA_VERSION = os.getenv("INERTIA_VERSION", "1.0")

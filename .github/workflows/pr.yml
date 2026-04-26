@@ -14,13 +14,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          fetch-depth: 1
+          # Shallow clones should be disabled for a better relevancy of analysis
+          fetch-depth: 0
       - name: Run lint and formatter checks
         run: |
           docker compose up --build --abort-on-container-exit --exit-code-from lint-formatter lint-formatter
       - name: Run integration tests
         run: |
           docker compose up --build --abort-on-container-exit --exit-code-from integration-tests integration-tests
+      # Secrets are not passed to runners on PRs from forks, so SONAR_TOKEN would
+      # resolve to an empty string and the scan would fail. Skip the step in that case.
+      # https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions#using-secrets-in-a-workflow
+      - name: SonarQube Scan
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        uses: SonarSource/sonarqube-scan-action@v7.1.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       - name: Set up Python
         uses: actions/setup-python@v5
         with:

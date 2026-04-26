@@ -64,6 +64,7 @@ paths_to_mutate = ["inertia"]
 pytest_add_cli_args_test_selection = [
     "inertia/tests/test_encoder.py",
     "inertia/tests/test_history.py",
+    "inertia/tests/test_http.py",
     "inertia/tests/test_infinite_scroll.py",
     "inertia/tests/test_logging.py",
     "inertia/tests/test_middleware.py",

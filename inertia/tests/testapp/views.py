@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from django.http.response import HttpResponse
 from django.shortcuts import redirect
@@ -578,3 +578,43 @@ def filter_scroll_props_test(request):
         "foo": infinite_scroll(lambda: [{"id": 1}], request, current_page=1),
         "bar": infinite_scroll(lambda: [{"id": 2}], request, current_page=2),
     }
+
+
+# --- Mutmut kill targets for inertia/http.py ---
+
+
+@inertia("EscapeChars")
+def escape_chars_in_props_test(request):
+    return {"value": "<script>alert(1)</script>&y"}
+
+
+class ShareErrorsMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def process_request(self, request):
+        share(request, errors={"shared": "value"})
+
+
+@decorator_from_middleware(ShareErrorsMiddleware)
+@inertia("TestComponent")
+def share_errors_then_optional_test(request):
+    return {"sport": optional(lambda: "Basketball")}
+
+
+@inertia("TestComponent")
+def merge_after_non_merging_defer_test(request):
+    return {
+        "name": "Brandon",
+        "sport": defer(lambda: "Basketball"),
+        "team": merge(lambda: "Bulls"),
+    }
+
+
+@inertia("TestComponent")
+def date_prop_test(request):
+    return {"when": date(2030, 1, 1)}
+
+
+def render_helper_with_props_test(request):
+    return render(request, "TestComponent", props={"hello": "world"})

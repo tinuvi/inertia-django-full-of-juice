@@ -65,4 +65,13 @@ urlpatterns = [
     path("filter-match-on/", views.filter_match_on_props_test),
     path("filter-once/", views.filter_once_props_test),
     path("filter-scroll/", views.filter_scroll_props_test),
+    # Mutmut kill targets for inertia/http.py
+    path("escape-chars/", views.escape_chars_in_props_test),
+    path(
+        "share-errors-then-optional/",
+        views.share_errors_then_optional_test,  # type: ignore[arg-type]
+    ),
+    path("merge-after-non-merging-defer/", views.merge_after_non_merging_defer_test),
+    path("date-prop/", views.date_prop_test),
+    path("render-helper-with-props/", views.render_helper_with_props_test),
 ]

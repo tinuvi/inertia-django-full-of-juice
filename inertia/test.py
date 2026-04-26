@@ -159,5 +159,6 @@ def inertia_div(*args, **kwargs):
         .replace("<", "\\u003c")
         .replace(">", "\\u003e")
         .replace("&", "\\u0026")
+        .replace("/", "\\u002f")
     )
     return f'<script data-page="app" type="application/json">{safe_data}</script>'

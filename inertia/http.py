@@ -48,13 +48,13 @@ class InertiaRequest(HttpRequest):
         )
 
     def is_a_partial_render(self, component: str) -> bool:
-        return (
-            "X-Inertia-Partial-Data" in self.headers
-            and self.headers.get("X-Inertia-Partial-Component", "") == component
-        )
+        return self.headers.get("X-Inertia-Partial-Component", "") == component
 
     def partial_keys(self) -> list[str]:
-        return self.headers.get("X-Inertia-Partial-Data", "").split(",")
+        header = self.headers.get("X-Inertia-Partial-Data", "")
+        if not header:
+            return []
+        return header.split(",")
 
     def partial_except_keys(self) -> list[str]:
         header = self.headers.get("X-Inertia-Partial-Except", "")
@@ -191,7 +191,7 @@ class BaseInertiaResponseMixin:
                     del _props[key]
                 continue
             if is_partial:
-                if key not in partial_keys:
+                if partial_keys and key not in partial_keys:
                     del _props[key]
                     continue
                 if key in partial_except_keys:
@@ -361,8 +361,13 @@ class BaseInertiaResponseMixin:
 
         # Escape characters that would let an attacker break out of the
         # `<script type="application/json">` block in the v3 page-shell.
+        # ``/`` is escaped so a literal ``</script>`` inside a prop value can
+        # never close the wrapping element on legacy/non-conforming parsers.
         safe_data = (
-            data.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+            data.replace("<", "\\u003c")
+            .replace(">", "\\u003e")
+            .replace("&", "\\u0026")
+            .replace("/", "\\u002f")
         )
         return {
             "page": safe_data,

@@ -411,6 +411,36 @@ class PartialExceptTestCase(InertiaTestCase):
         self.assertEqual(page_props["sport"], "Basketball")
         self.assertNotIn("team", page_props)
 
+    def test_except_alone_without_partial_data(self):
+        # The v3 client emits ``router.reload({ except: [...] })`` with only
+        # ``X-Inertia-Partial-Except`` and ``X-Inertia-Partial-Component`` —
+        # no ``X-Inertia-Partial-Data``. The protocol expects this to be
+        # honored as a partial render. Mirrors Laravel's
+        # ``PropsResolver`` predicate, which keys off the component header
+        # alone (see ``inertiajs/inertia-laravel`` 3.x
+        # ``src/PropsResolver.php``).
+        self.inertia.get(
+            "/partial-except/",
+            HTTP_X_INERTIA_PARTIAL_EXCEPT="name",
+            HTTP_X_INERTIA_PARTIAL_COMPONENT="TestComponent",
+        )
+        page_props = self.props()
+        self.assertNotIn("name", page_props)
+        self.assertIn("sport", page_props)
+        self.assertIn("team", page_props)
+        self.assertIn("grit", page_props)
+
+    def test_except_alone_suppresses_deferred_props(self):
+        # ``deferredProps`` must be suppressed on a partial render — otherwise
+        # the v3 client would refetch every deferred group on every
+        # ``router.reload({ except: [...] })`` call.
+        self.inertia.get(
+            "/partial-except-deferred/",
+            HTTP_X_INERTIA_PARTIAL_EXCEPT="team",
+            HTTP_X_INERTIA_PARTIAL_COMPONENT="TestComponent",
+        )
+        self.assertNotIn("deferredProps", self.page())
+
 
 class ErrorsResponseTestCase(InertiaTestCase):
     def test_default_status_and_shape(self):

@@ -3,7 +3,6 @@ from unittest.mock import patch
 
 from django.template.loader import render_to_string as base_render_to_string
 from django.test import Client, TestCase
-from django.utils.html import escape
 
 from inertia.settings import settings
 
@@ -100,27 +99,66 @@ def inertia_page(
     template_data=None,
     deferred_props=None,
     merge_props=None,
+    prepend_props=None,
+    deep_merge_props=None,
+    match_props_on=None,
+    once_props=None,
+    scroll_props=None,
+    encrypt_history: bool = False,
+    clear_history: bool = False,
+    preserve_fragment: bool = False,
 ):
     props = props or {}
     template_data = template_data or {}
+    if "errors" not in props:
+        props = {**props, "errors": {}}
     _page = {
         "component": component,
         "props": props,
         "url": f"/{url}/",
         "version": settings.INERTIA_VERSION,
-        "encryptHistory": False,
-        "clearHistory": False,
     }
+
+    if encrypt_history:
+        _page["encryptHistory"] = True
+
+    if clear_history:
+        _page["clearHistory"] = True
+
+    if preserve_fragment:
+        _page["preserveFragment"] = True
 
     if deferred_props:
         _page["deferredProps"] = deferred_props
 
-    if merge_props:
+    if merge_props is not None:
         _page["mergeProps"] = merge_props
+
+    if prepend_props is not None:
+        _page["prependProps"] = prepend_props
+
+    if deep_merge_props is not None:
+        _page["deepMergeProps"] = deep_merge_props
+
+    if match_props_on is not None:
+        _page["matchPropsOn"] = match_props_on
+
+    if once_props is not None:
+        _page["onceProps"] = once_props
+
+    if scroll_props is not None:
+        _page["scrollProps"] = scroll_props
 
     return _page
 
 
 def inertia_div(*args, **kwargs):
     page = inertia_page(*args, **kwargs)
-    return f'<div id="app" data-page="{escape(dumps(page))}"></div>'
+    safe_data = (
+        dumps(page)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+        .replace("/", "\\u002f")
+    )
+    return f'<script data-page="app" type="application/json">{safe_data}</script>'

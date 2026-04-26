@@ -1,14 +1,22 @@
+import time
+from datetime import datetime, timedelta, timezone
 from importlib.resources import files
 from unittest import TestCase
 
+from django.test import RequestFactory
+
+from inertia.infinite_scroll import InfiniteScrollProp, infinite_scroll
 from inertia.prop_classes import (
+    DeepMergeProp,
     DeferredProp,
     IgnoreOnFirstLoadProp,
     MergeableProp,
     MergeProp,
+    OnceProp,
     OptionalProp,
+    PrependProp,
 )
-from inertia.utils import defer, lazy, merge, optional
+from inertia.utils import deep_merge, defer, lazy, merge, once, optional, prepend
 
 
 class PyTypedMarkerTestCase(TestCase):
@@ -70,6 +78,13 @@ class DeferHelperTestCase(TestCase):
     def test_resolves_callable_value(self):
         self.assertEqual(defer(lambda: "Basketball")(), "Basketball")
 
+    def test_default_match_on_is_empty(self):
+        self.assertEqual(defer(lambda: "x").match_on(), [])
+
+    def test_match_on_kwarg_is_propagated(self):
+        prop = defer(lambda: "x", merge=True, match_on=["id", "data.id"])
+        self.assertEqual(prop.match_on(), ["id", "data.id"])
+
 
 class MergeHelperTestCase(TestCase):
     def test_returns_merge_prop(self):
@@ -82,3 +97,228 @@ class MergeHelperTestCase(TestCase):
 
     def test_resolves_callable_value(self):
         self.assertEqual(merge(lambda: "Basketball")(), "Basketball")
+
+    def test_default_strategy_is_append(self):
+        self.assertEqual(merge(lambda: "x").merge_strategy(), "append")
+
+    def test_default_match_on_is_empty(self):
+        self.assertEqual(merge(lambda: "x").match_on(), [])
+
+    def test_match_on_kwarg_is_propagated(self):
+        prop = merge(lambda: "x", match_on=["id", "data.id"])
+        self.assertEqual(prop.match_on(), ["id", "data.id"])
+
+
+class PrependHelperTestCase(TestCase):
+    def test_returns_prepend_prop(self):
+        prop = prepend(lambda: "Basketball")
+        self.assertIsInstance(prop, PrependProp)
+        self.assertIsInstance(prop, MergeableProp)
+
+    def test_always_merges(self):
+        self.assertTrue(prepend(lambda: "x").should_merge())
+
+    def test_strategy_is_prepend(self):
+        self.assertEqual(prepend(lambda: "x").merge_strategy(), "prepend")
+
+    def test_default_match_on_is_empty(self):
+        self.assertEqual(prepend(lambda: "x").match_on(), [])
+
+    def test_match_on_kwarg_is_propagated(self):
+        prop = prepend(lambda: "x", match_on=["id"])
+        self.assertEqual(prop.match_on(), ["id"])
+
+    def test_resolves_callable_value(self):
+        self.assertEqual(prepend(lambda: "Basketball")(), "Basketball")
+
+
+class DeepMergeHelperTestCase(TestCase):
+    def test_returns_deep_merge_prop(self):
+        prop = deep_merge(lambda: {"a": 1})
+        self.assertIsInstance(prop, DeepMergeProp)
+        self.assertIsInstance(prop, MergeableProp)
+
+    def test_always_merges(self):
+        self.assertTrue(deep_merge(lambda: {"a": 1}).should_merge())
+
+    def test_strategy_is_deep(self):
+        self.assertEqual(deep_merge(lambda: {"a": 1}).merge_strategy(), "deep")
+
+    def test_default_match_on_is_empty(self):
+        self.assertEqual(deep_merge(lambda: {"a": 1}).match_on(), [])
+
+    def test_match_on_kwarg_is_propagated(self):
+        prop = deep_merge(lambda: {"a": 1}, match_on=["nested.id", "id"])
+        self.assertEqual(prop.match_on(), ["nested.id", "id"])
+
+    def test_resolves_callable_value(self):
+        self.assertEqual(deep_merge(lambda: {"a": 1})(), {"a": 1})
+
+
+class OnceHelperTestCase(TestCase):
+    def test_returns_once_prop(self):
+        prop = once(lambda: "Basketball")
+        self.assertIsInstance(prop, OnceProp)
+
+    def test_default_key_is_none(self):
+        self.assertIsNone(once(lambda: "x").key)
+
+    def test_custom_key_is_preserved(self):
+        self.assertEqual(once(lambda: "x", key="custom").key, "custom")
+
+    def test_default_fresh_flag_is_false(self):
+        self.assertFalse(once(lambda: "x").fresh)
+
+    def test_fresh_flag_is_set(self):
+        self.assertTrue(once(lambda: "x", fresh=True).fresh)
+
+    def test_default_expires_at_is_none(self):
+        self.assertIsNone(once(lambda: "x").expires_at)
+
+    def test_resolves_callable_value(self):
+        self.assertEqual(once(lambda: "Basketball")(), "Basketball")
+
+    def test_resolves_static_value(self):
+        self.assertEqual(once("Basketball")(), "Basketball")
+
+    def test_expires_in_timedelta_resolves_to_ms(self):
+        before_ms = int(time.time() * 1000) + 60_000
+        prop = once(lambda: "x", expires_in=timedelta(seconds=60))
+        after_ms = int(time.time() * 1000) + 60_000
+        self.assertIsNotNone(prop.expires_at)
+        assert prop.expires_at is not None
+        self.assertGreaterEqual(prop.expires_at, before_ms - 2_000)
+        self.assertLessEqual(prop.expires_at, after_ms + 2_000)
+
+    def test_expires_in_int_seconds_resolves_to_ms(self):
+        before_ms = int(time.time() * 1000) + 30_000
+        prop = once(lambda: "x", expires_in=30)
+        after_ms = int(time.time() * 1000) + 30_000
+        self.assertIsNotNone(prop.expires_at)
+        assert prop.expires_at is not None
+        self.assertGreaterEqual(prop.expires_at, before_ms - 2_000)
+        self.assertLessEqual(prop.expires_at, after_ms + 2_000)
+
+    def test_expires_at_aware_datetime_resolves_to_ms(self):
+        target = datetime(2030, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        expected_ms = int(target.timestamp() * 1000)
+        prop = once(lambda: "x", expires_at=target)
+        self.assertEqual(prop.expires_at, expected_ms)
+
+    def test_expires_at_naive_datetime_assumed_utc(self):
+        naive = datetime(2030, 1, 1, 0, 0, 0)
+        expected_ms = int(naive.replace(tzinfo=timezone.utc).timestamp() * 1000)
+        prop = once(lambda: "x", expires_at=naive)
+        self.assertEqual(prop.expires_at, expected_ms)
+
+    def test_expires_at_int_passes_through_as_ms(self):
+        prop = once(lambda: "x", expires_at=1234567890123)
+        self.assertEqual(prop.expires_at, 1234567890123)
+
+    def test_dual_input_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            once(lambda: "x", expires_in=60, expires_at=1234567890123)
+
+    def test_is_not_ignored_on_first_load(self):
+        prop = once(lambda: "x")
+        self.assertNotIsInstance(prop, IgnoreOnFirstLoadProp)
+
+    def test_is_not_mergeable(self):
+        prop = once(lambda: "x")
+        self.assertNotIsInstance(prop, MergeableProp)
+
+
+class InfiniteScrollHelperTestCase(TestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def test_returns_infinite_scroll_prop(self):
+        prop = infinite_scroll(lambda: [], self.factory.get("/"))
+        self.assertIsInstance(prop, InfiniteScrollProp)
+        self.assertIsInstance(prop, MergeableProp)
+
+    def test_default_match_on_is_empty(self):
+        prop = infinite_scroll(lambda: [], self.factory.get("/"))
+        self.assertEqual(prop.match_on(), [])
+
+    def test_match_on_kwarg_is_propagated(self):
+        prop = infinite_scroll(
+            lambda: [],
+            self.factory.get("/"),
+            match_on=["id"],
+        )
+        self.assertEqual(prop.match_on(), ["id"])
+
+    def test_should_merge_is_true(self):
+        prop = infinite_scroll(lambda: [], self.factory.get("/"))
+        self.assertTrue(prop.should_merge())
+
+    def test_default_strategy_is_append(self):
+        prop = infinite_scroll(lambda: [], self.factory.get("/"))
+        self.assertEqual(prop.merge_strategy(), "append")
+
+    def test_prepend_intent_header_routes_to_prepend(self):
+        request = self.factory.get(
+            "/",
+            HTTP_X_INERTIA_INFINITE_SCROLL_MERGE_INTENT="prepend",
+        )
+        prop = infinite_scroll(lambda: [], request)
+        self.assertEqual(prop.merge_strategy(), "prepend")
+
+    def test_unknown_intent_falls_back_to_append(self):
+        request = self.factory.get(
+            "/",
+            HTTP_X_INERTIA_INFINITE_SCROLL_MERGE_INTENT="bogus",
+        )
+        prop = infinite_scroll(lambda: [], request)
+        self.assertEqual(prop.merge_strategy(), "append")
+
+    def test_append_intent_header_keeps_append(self):
+        request = self.factory.get(
+            "/",
+            HTTP_X_INERTIA_INFINITE_SCROLL_MERGE_INTENT="append",
+        )
+        prop = infinite_scroll(lambda: [], request)
+        self.assertEqual(prop.merge_strategy(), "append")
+
+    def test_scroll_metadata_returns_four_keys(self):
+        prop = infinite_scroll(
+            lambda: [],
+            self.factory.get("/"),
+            page_name="cursor",
+            previous_page=1,
+            next_page=3,
+            current_page=2,
+        )
+        self.assertEqual(
+            prop.scroll_metadata(),
+            {
+                "pageName": "cursor",
+                "previousPage": 1,
+                "nextPage": 3,
+                "currentPage": 2,
+            },
+        )
+
+    def test_scroll_metadata_defaults(self):
+        prop = infinite_scroll(lambda: [], self.factory.get("/"))
+        self.assertEqual(
+            prop.scroll_metadata(),
+            {
+                "pageName": "page",
+                "previousPage": None,
+                "nextPage": None,
+                "currentPage": None,
+            },
+        )
+
+    def test_resolves_callable_value(self):
+        prop = infinite_scroll(
+            lambda: [{"id": 1}],
+            self.factory.get("/"),
+        )
+        self.assertEqual(prop(), [{"id": 1}])
+
+    def test_resolves_static_value(self):
+        prop = infinite_scroll([{"id": 1}], self.factory.get("/"))
+        self.assertEqual(prop(), [{"id": 1}])

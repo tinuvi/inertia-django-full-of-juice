@@ -1,9 +1,32 @@
+from datetime import datetime, timedelta, timezone
+
 from django.http.response import HttpResponse
 from django.shortcuts import redirect
 from django.utils.decorators import decorator_from_middleware
 
-from inertia import defer, inertia, lazy, location, merge, optional, render, share
-from inertia.http import INERTIA_SESSION_CLEAR_HISTORY, clear_history, encrypt_history
+from inertia import (
+    deep_merge,
+    defer,
+    errors_response,
+    inertia,
+    inertia_redirect,
+    infinite_scroll,
+    lazy,
+    location,
+    merge,
+    once,
+    optional,
+    prepend,
+    preserve_fragment,
+    render,
+    share,
+)
+from inertia.http import (
+    INERTIA_SESSION_CLEAR_HISTORY,
+    INERTIA_SESSION_PRESERVE_FRAGMENT,
+    clear_history,
+    encrypt_history,
+)
 
 
 class ShareMiddleware:
@@ -152,3 +175,406 @@ def clear_history_redirect_test(request):
 def clear_history_type_error_test(request):
     request.session[INERTIA_SESSION_CLEAR_HISTORY] = "foo"
     return {}
+
+
+@inertia("TestComponent")
+def errors_share_test(request):
+    share(request, errors={"name": "Required"})
+    return {}
+
+
+@inertia("TestComponent")
+def errors_per_render_test(request):
+    return {"errors": {"sport": "Invalid"}}
+
+
+@inertia("TestComponent")
+def partial_except_test(request):
+    return {
+        "name": "Brian",
+        "sport": "Hockey",
+        "team": "Penguins",
+        "grit": "intense",
+    }
+
+
+@inertia("TestComponent")
+def partial_except_with_deferred_test(request):
+    return {
+        "name": "Brian",
+        "sport": defer(lambda: "Basketball"),
+        "team": defer(lambda: "Bulls"),
+    }
+
+
+def fragment_redirect_test(request):
+    return redirect("/empty/#section")
+
+
+def preserve_fragment_view(request):
+    preserve_fragment(request)
+    return render(request, "TestComponent", props={})
+
+
+@inertia("TestComponent")
+def preserve_fragment_type_error_test(request):
+    request.session[INERTIA_SESSION_PRESERVE_FRAGMENT] = "foo"
+    return {}
+
+
+def errors_response_view(request):
+    return errors_response({"email": "Required", "password": ["Too short", "Too weak"]})
+
+
+def errors_response_custom_view(request):
+    return errors_response(
+        {"name": "Required"},
+        message="Custom message",
+        status=400,
+    )
+
+
+def inertia_redirect_helper_test(request):
+    return inertia_redirect("/foo#bar")
+
+
+@inertia("TestComponent")
+def once_test(request):
+    return {
+        "name": "Brian",
+        "plans": once(lambda: ["A", "B"]),
+    }
+
+
+@inertia("TestComponent")
+def once_custom_key_test(request):
+    return {
+        "plans": once(lambda: ["A", "B"], key="custom-key"),
+    }
+
+
+@inertia("TestComponent")
+def once_fresh_test(request):
+    return {
+        "plans": once(lambda: ["A", "B"], fresh=True),
+    }
+
+
+@inertia("TestComponent")
+def once_multiple_test(request):
+    return {
+        "plans": once(lambda: ["A", "B"]),
+        "config": once(lambda: {"x": 1}),
+    }
+
+
+@inertia("TestComponent")
+def once_expires_in_timedelta_test(request):
+    return {
+        "plans": once(lambda: ["A"], expires_in=timedelta(seconds=60)),
+    }
+
+
+@inertia("TestComponent")
+def once_expires_in_int_test(request):
+    return {
+        "plans": once(lambda: ["A"], expires_in=30),
+    }
+
+
+ONCE_FIXED_DATETIME = datetime(2030, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+
+
+@inertia("TestComponent")
+def once_expires_at_datetime_test(request):
+    return {
+        "plans": once(lambda: ["A"], expires_at=ONCE_FIXED_DATETIME),
+    }
+
+
+@inertia("TestComponent")
+def prepend_test(request):
+    return {
+        "name": "Brandon",
+        "notifications": prepend(lambda: ["a", "b"]),
+    }
+
+
+@inertia("TestComponent")
+def prepend_match_on_test(request):
+    return {
+        "notifications": prepend(lambda: ["a", "b"], match_on=["id"]),
+    }
+
+
+@inertia("TestComponent")
+def deep_merge_test(request):
+    return {
+        "filters": deep_merge(lambda: {"a": 1}),
+    }
+
+
+@inertia("TestComponent")
+def deep_merge_match_on_test(request):
+    return {
+        "filters": deep_merge(lambda: {"a": 1}, match_on=["nested.id", "id"]),
+    }
+
+
+@inertia("TestComponent")
+def merge_match_on_test(request):
+    return {
+        "users": merge(lambda: [{"id": 1}], match_on=["id"]),
+    }
+
+
+@inertia("TestComponent")
+def merge_match_on_multiple_test(request):
+    return {
+        "posts": merge(lambda: [{"id": 1}], match_on=["data.id", "id"]),
+    }
+
+
+@inertia("TestComponent")
+def defer_match_on_test(request):
+    return {
+        "users": defer(lambda: [{"id": 1}], merge=True, match_on=["id"]),
+    }
+
+
+@inertia("TestComponent")
+def infinite_scroll_test(request):
+    return {
+        "items": infinite_scroll(
+            lambda: [{"id": 1}, {"id": 2}],
+            request,
+        ),
+    }
+
+
+@inertia("TestComponent")
+def infinite_scroll_match_on_test(request):
+    return {
+        "items": infinite_scroll(
+            lambda: [{"id": 1}, {"id": 2}],
+            request,
+            match_on=["id"],
+        ),
+    }
+
+
+@inertia("TestComponent")
+def infinite_scroll_pagination_test(request):
+    return {
+        "items": infinite_scroll(
+            lambda: [{"id": 1}, {"id": 2}],
+            request,
+            page_name="cursor",
+            previous_page=2,
+            next_page=4,
+            current_page=3,
+        ),
+    }
+
+
+@inertia("TestComponent")
+def infinite_scroll_two_props_test(request):
+    return {
+        "items": infinite_scroll(
+            lambda: [{"id": 1}, {"id": 2}],
+            request,
+            current_page=1,
+        ),
+        "feed": infinite_scroll(
+            lambda: [{"id": 10}],
+            request,
+            current_page=5,
+        ),
+    }
+
+
+@inertia("TestComponent")
+def infinite_scroll_partial_test(request):
+    return {
+        "name": "Brian",
+        "items": infinite_scroll(
+            lambda: [{"id": 1}, {"id": 2}],
+            request,
+            current_page=2,
+        ),
+    }
+
+
+# --- Shared-prop registry views (Fix #1) ---
+
+
+class ShareOnceMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def process_request(self, request):
+        share(
+            request,
+            shared_plans=once(lambda: ["A", "B"]),
+        )
+
+
+@decorator_from_middleware(ShareOnceMiddleware)
+@inertia("TestComponent")
+def share_once_test(request):
+    return {"name": "Brian"}
+
+
+class ShareDeferMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def process_request(self, request):
+        share(
+            request,
+            shared_sport=defer(lambda: "Basketball"),
+        )
+
+
+@decorator_from_middleware(ShareDeferMiddleware)
+@inertia("TestComponent")
+def share_defer_test(request):
+    return {"name": "Brian"}
+
+
+class ShareMergeMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def process_request(self, request):
+        share(
+            request,
+            shared_users=merge(lambda: [{"id": 1}], match_on=["id"]),
+        )
+
+
+@decorator_from_middleware(ShareMergeMiddleware)
+@inertia("TestComponent")
+def share_merge_test(request):
+    return {"name": "Brian"}
+
+
+class SharePrependMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def process_request(self, request):
+        share(
+            request,
+            shared_notifications=prepend(lambda: ["a"]),
+        )
+
+
+@decorator_from_middleware(SharePrependMiddleware)
+@inertia("TestComponent")
+def share_prepend_test(request):
+    return {"name": "Brian"}
+
+
+class ShareDeepMergeMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def process_request(self, request):
+        share(
+            request,
+            shared_filters=deep_merge(lambda: {"a": 1}),
+        )
+
+
+@decorator_from_middleware(ShareDeepMergeMiddleware)
+@inertia("TestComponent")
+def share_deep_merge_test(request):
+    return {"name": "Brian"}
+
+
+class ShareScrollMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def process_request(self, request):
+        share(
+            request,
+            shared_items=infinite_scroll(
+                lambda: [{"id": 1}],
+                request,
+                current_page=2,
+            ),
+        )
+
+
+@decorator_from_middleware(ShareScrollMiddleware)
+@inertia("TestComponent")
+def share_scroll_test(request):
+    return {"name": "Brian"}
+
+
+# Per-request prop overrides a shared prop with the same key
+class ShareCollisionMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def process_request(self, request):
+        share(request, name="from-shared")
+
+
+@decorator_from_middleware(ShareCollisionMiddleware)
+@inertia("TestComponent")
+def share_collision_test(request):
+    return {"name": "from-per-request"}
+
+
+# --- Registry filtering on partial reloads (Fix #2) ---
+
+
+@inertia("TestComponent")
+def filter_merge_props_test(request):
+    return {
+        "foo": merge(lambda: [1]),
+        "bar": merge(lambda: [2]),
+    }
+
+
+@inertia("TestComponent")
+def filter_prepend_props_test(request):
+    return {
+        "foo": prepend(lambda: [1]),
+        "bar": prepend(lambda: [2]),
+    }
+
+
+@inertia("TestComponent")
+def filter_deep_merge_props_test(request):
+    return {
+        "foo": deep_merge(lambda: {"a": 1}),
+        "bar": deep_merge(lambda: {"b": 2}),
+    }
+
+
+@inertia("TestComponent")
+def filter_match_on_props_test(request):
+    return {
+        "foo": merge(lambda: [{"id": 1}], match_on=["id"]),
+        "bar": merge(lambda: [{"id": 2}], match_on=["id"]),
+    }
+
+
+@inertia("TestComponent")
+def filter_once_props_test(request):
+    return {
+        "foo": once(lambda: ["A"]),
+        "bar": once(lambda: ["B"]),
+    }
+
+
+@inertia("TestComponent")
+def filter_scroll_props_test(request):
+    return {
+        "foo": infinite_scroll(lambda: [{"id": 1}], request, current_page=1),
+        "bar": infinite_scroll(lambda: [{"id": 2}], request, current_page=2),
+    }

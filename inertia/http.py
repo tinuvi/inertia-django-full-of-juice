@@ -6,11 +6,12 @@ from json import dumps as json_encode
 from typing import Any, Concatenate, ParamSpec
 
 from django.core.exceptions import ImproperlyConfigured
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.template.loader import render_to_string
 
 from .helpers import deep_transform_callables
-from .prop_classes import DeferredProp, IgnoreOnFirstLoadProp, MergeableProp
+from .infinite_scroll import InfiniteScrollProp
+from .prop_classes import DeferredProp, IgnoreOnFirstLoadProp, MergeableProp, OnceProp
 from .settings import settings
 
 try:
@@ -26,9 +27,12 @@ P = ParamSpec("P")
 
 INERTIA_REQUEST_ENCRYPT_HISTORY = "_inertia_encrypt_history"
 INERTIA_SESSION_CLEAR_HISTORY = "_inertia_clear_history"
+INERTIA_SESSION_PRESERVE_FRAGMENT = "_inertia_preserve_fragment"
 
 INERTIA_TEMPLATE = "inertia.html"
 INERTIA_SSR_TEMPLATE = "inertia_ssr.html"
+
+ALWAYS_INCLUDED_KEYS: frozenset[str] = frozenset({"errors"})
 
 
 class InertiaRequest(HttpRequest):
@@ -44,16 +48,26 @@ class InertiaRequest(HttpRequest):
         )
 
     def is_a_partial_render(self, component: str) -> bool:
-        return (
-            "X-Inertia-Partial-Data" in self.headers
-            and self.headers.get("X-Inertia-Partial-Component", "") == component
-        )
+        return self.headers.get("X-Inertia-Partial-Component", "") == component
 
     def partial_keys(self) -> list[str]:
-        return self.headers.get("X-Inertia-Partial-Data", "").split(",")
+        header = self.headers.get("X-Inertia-Partial-Data", "")
+        if not header:
+            return []
+        return header.split(",")
+
+    def partial_except_keys(self) -> list[str]:
+        header = self.headers.get("X-Inertia-Partial-Except", "")
+        if not header:
+            return []
+        return header.split(",")
 
     def reset_keys(self) -> list[str]:
         return self.headers.get("X-Inertia-Reset", "").split(",")
+
+    def except_once_keys(self) -> list[str]:
+        raw = self.headers.get("X-Inertia-Except-Once-Props", "")
+        return [k for k in raw.split(",") if k]
 
     def is_inertia(self) -> bool:
         return "X-Inertia" in self.headers
@@ -75,6 +89,40 @@ class BaseInertiaResponseMixin:
     props: dict[str, Any]
     template_data: dict[str, Any]
 
+    def _all_props(self) -> dict[str, Any]:
+        """Returns the merged shared + per-request props.
+
+        Mirrors Laravel's ``PropsResolver::resolve()``, which merges
+        shared props first and per-request props second so that
+        per-request props take precedence on key conflicts. Walking this
+        merged set means registries (once / deferred / merge / scroll)
+        pick up props injected via ``share(request, ...)``.
+        """
+        return {
+            **(self.request.inertia),
+            **self.props,
+        }
+
+    def _is_included_in_partial(
+        self,
+        key: str,
+        *,
+        is_partial: bool,
+        partial_keys: list[str],
+        partial_except_keys: list[str],
+    ) -> bool:
+        """Mirrors Laravel's ``PropsResolver::isIncludedInPartialMetadata``.
+
+        On a non-partial request, every key is included. On a partial
+        request, the key must appear in ``X-Inertia-Partial-Data`` (when
+        set) and must not appear in ``X-Inertia-Partial-Except``.
+        """
+        if not is_partial:
+            return True
+        if partial_keys and key not in partial_keys:
+            return False
+        return key not in partial_except_keys
+
     def page_data(self) -> dict[str, Any]:
         clear_history = self.request.session.pop(INERTIA_SESSION_CLEAR_HISTORY, False)
         if not isinstance(clear_history, bool):
@@ -82,62 +130,194 @@ class BaseInertiaResponseMixin:
                 f"Expected bool for clear_history, got {type(clear_history).__name__}"
             )
 
-        _page = {
+        preserve_fragment_flag = self.request.session.pop(
+            INERTIA_SESSION_PRESERVE_FRAGMENT, False
+        )
+        if not isinstance(preserve_fragment_flag, bool):
+            raise TypeError(
+                f"Expected bool for preserve_fragment, got {type(preserve_fragment_flag).__name__}"
+            )
+
+        encrypt_history_flag = self.request.should_encrypt_history()
+
+        _page: dict[str, Any] = {
             "component": self.component,
             "props": self.build_props(),
             "url": self.request.get_full_path(),
             "version": settings.INERTIA_VERSION,
-            "encryptHistory": self.request.should_encrypt_history(),
-            "clearHistory": clear_history,
         }
+
+        if encrypt_history_flag:
+            _page["encryptHistory"] = True
+
+        if clear_history:
+            _page["clearHistory"] = True
+
+        if preserve_fragment_flag:
+            _page["preserveFragment"] = True
 
         _deferred_props = self.build_deferred_props()
         if _deferred_props:
             _page["deferredProps"] = _deferred_props
 
-        _merge_props = self.build_merge_props()
-        if _merge_props:
-            _page["mergeProps"] = _merge_props
+        _merge_kinds = self.build_merge_kinds()
+        for field_name, values in _merge_kinds.items():
+            if values:
+                _page[field_name] = values
+
+        _once_props = self.build_once_props()
+        if _once_props:
+            _page["onceProps"] = _once_props
+
+        _scroll_props = self.build_scroll_props()
+        if _scroll_props:
+            _page["scrollProps"] = _scroll_props
 
         return _page
 
     def build_props(self) -> Any:
-        _props = {
-            **(self.request.inertia),
-            **self.props,
-        }
+        _props = self._all_props()
+
+        _props.setdefault("errors", {})
+
+        is_partial = self.request.is_a_partial_render(self.component)
+        partial_keys = self.request.partial_keys() if is_partial else []
+        partial_except_keys = self.request.partial_except_keys() if is_partial else []
+        except_once_keys = self.request.except_once_keys()
 
         for key in list(_props.keys()):
-            if self.request.is_a_partial_render(self.component):
-                if key not in self.request.partial_keys():
+            if key in ALWAYS_INCLUDED_KEYS:
+                if is_partial and key in partial_except_keys:
                     del _props[key]
+                continue
+            if is_partial:
+                if partial_keys and key not in partial_keys:
+                    del _props[key]
+                    continue
+                if key in partial_except_keys:
+                    del _props[key]
+                    continue
             else:
                 if isinstance(_props[key], IgnoreOnFirstLoadProp):
                     del _props[key]
+                    continue
+
+            prop_value = _props.get(key)
+            if isinstance(prop_value, OnceProp) and not prop_value.fresh:
+                effective_key = prop_value.key or key
+                if effective_key in except_once_keys and not (
+                    is_partial and key in partial_keys
+                ):
+                    del _props[key]
 
         return deep_transform_callables(_props)
+
+    def build_once_props(self) -> dict[str, dict[str, Any]]:
+        is_partial = self.request.is_a_partial_render(self.component)
+        partial_keys = self.request.partial_keys() if is_partial else []
+        partial_except_keys = self.request.partial_except_keys() if is_partial else []
+        reset = set(self.request.reset_keys())
+
+        _once_props: dict[str, dict[str, Any]] = {}
+        for key, prop in self._all_props().items():
+            if not isinstance(prop, OnceProp):
+                continue
+            if key in reset:
+                continue
+            if not self._is_included_in_partial(
+                key,
+                is_partial=is_partial,
+                partial_keys=partial_keys,
+                partial_except_keys=partial_except_keys,
+            ):
+                continue
+            effective_key = prop.key or key
+            _once_props[effective_key] = {
+                "prop": key,
+                "expiresAt": prop.expires_at,
+            }
+        return _once_props
 
     def build_deferred_props(self) -> dict[str, Any] | None:
         if self.request.is_a_partial_render(self.component):
             return None
 
         _deferred_props: dict[str, Any] = {}
-        for key, prop in self.props.items():
+        for key, prop in self._all_props().items():
             if isinstance(prop, DeferredProp):
                 _deferred_props.setdefault(prop.group, []).append(key)
 
         return _deferred_props
 
-    def build_merge_props(self) -> list[str]:
-        return [
-            key
-            for key, prop in self.props.items()
-            if (
-                isinstance(prop, MergeableProp)
-                and prop.should_merge()
-                and key not in self.request.reset_keys()
-            )
-        ]
+    def build_scroll_props(self) -> dict[str, dict[str, Any]]:
+        """Returns the v3 ``scrollProps`` registry.
+
+        Walks the merged shared + per-request props for
+        :class:`InfiniteScrollProp` instances and emits one entry per
+        prop with the four metadata keys plus a ``reset`` boolean derived
+        from ``X-Inertia-Reset``. The entry is suppressed when the prop
+        is filtered out by ``X-Inertia-Partial-Data`` /
+        ``X-Inertia-Partial-Except`` — mirroring how the underlying
+        prop value would not survive into the response.
+        """
+        is_partial = self.request.is_a_partial_render(self.component)
+        partial_keys = self.request.partial_keys() if is_partial else []
+        partial_except_keys = self.request.partial_except_keys() if is_partial else []
+        reset = set(self.request.reset_keys())
+
+        out: dict[str, dict[str, Any]] = {}
+        for key, prop in self._all_props().items():
+            if not isinstance(prop, InfiniteScrollProp):
+                continue
+            if not self._is_included_in_partial(
+                key,
+                is_partial=is_partial,
+                partial_keys=partial_keys,
+                partial_except_keys=partial_except_keys,
+            ):
+                continue
+            metadata = prop.scroll_metadata()
+            metadata["reset"] = key in reset
+            out[key] = metadata
+        return out
+
+    def build_merge_kinds(self) -> dict[str, list[str]]:
+        """Returns the four merge-metadata arrays. Empty arrays mean "don't emit"."""
+        out: dict[str, list[str]] = {
+            "mergeProps": [],
+            "prependProps": [],
+            "deepMergeProps": [],
+            "matchPropsOn": [],
+        }
+        is_partial = self.request.is_a_partial_render(self.component)
+        partial_keys = self.request.partial_keys() if is_partial else []
+        partial_except_keys = self.request.partial_except_keys() if is_partial else []
+        reset = set(self.request.reset_keys())
+
+        for key, prop in self._all_props().items():
+            if not isinstance(prop, MergeableProp):
+                continue
+            if not prop.should_merge():
+                continue
+            if key in reset:
+                continue
+            if not self._is_included_in_partial(
+                key,
+                is_partial=is_partial,
+                partial_keys=partial_keys,
+                partial_except_keys=partial_except_keys,
+            ):
+                continue
+            strategy = prop.merge_strategy()
+            if strategy == "append":
+                out["mergeProps"].append(key)
+            elif strategy == "prepend":
+                out["prependProps"].append(key)
+            elif strategy == "deep":
+                out["deepMergeProps"].append(key)
+            for path in prop.match_on():
+                out["matchPropsOn"].append(f"{key}.{path}")
+        return out
 
     def build_first_load(self, data: Any) -> str:
         context, template = self.build_first_load_context_and_template(data)
@@ -179,8 +359,18 @@ class BaseInertiaResponseMixin:
             except Exception:
                 logger.exception("SSR render request failed")
 
+        # Escape characters that would let an attacker break out of the
+        # `<script type="application/json">` block in the v3 page-shell.
+        # ``/`` is escaped so a literal ``</script>`` inside a prop value can
+        # never close the wrapping element on legacy/non-conforming parsers.
+        safe_data = (
+            data.replace("<", "\\u003c")
+            .replace(">", "\\u003e")
+            .replace("&", "\\u0026")
+            .replace("/", "\\u002f")
+        )
         return {
-            "page": data,
+            "page": safe_data,
             **(self.template_data),
         }, INERTIA_TEMPLATE
 
@@ -253,12 +443,37 @@ def location(location: str) -> HttpResponse:
     )
 
 
+def inertia_redirect(url: str) -> HttpResponse:
+    return HttpResponse(
+        "",
+        status=HTTPStatus.CONFLICT,
+        headers={
+            "X-Inertia-Redirect": url,
+        },
+    )
+
+
 def encrypt_history(request: HttpRequest, value: bool = True) -> None:
     setattr(request, INERTIA_REQUEST_ENCRYPT_HISTORY, value)
 
 
 def clear_history(request: HttpRequest) -> None:
     request.session[INERTIA_SESSION_CLEAR_HISTORY] = True
+
+
+def preserve_fragment(request: HttpRequest) -> None:
+    request.session[INERTIA_SESSION_PRESERVE_FRAGMENT] = True
+
+
+def errors_response(
+    errors: dict[str, Any],
+    message: str = "The given data was invalid.",
+    status: int = 422,
+) -> JsonResponse:
+    return JsonResponse(
+        {"message": message, "errors": errors},
+        status=status,
+    )
 
 
 def inertia(

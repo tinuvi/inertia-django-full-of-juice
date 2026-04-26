@@ -76,7 +76,7 @@ class SSRTestCase(InertiaTestCase):
             response, inertia_div("props", props={"name": "Brandon", "sport": "Hockey"})
         )
 
-    @patch("inertia.http.logger")
+    @patch("inertia.http._logger")
     @patch("inertia.http.requests")
     def test_it_logs_exception_on_ssr_failure(self, mock_requests, mock_logger):
         error = ValueError("SSR rendering failed")

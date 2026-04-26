@@ -1,0 +1,33 @@
+name: Publish coverage report
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'inertia/**'
+      - 'Dockerfile'
+      - 'poetry.lock'
+      - 'pyproject.toml'
+      - 'sonar-project.properties'
+      - '.github/workflows/publish-coverage.yml'
+  workflow_dispatch:
+
+jobs:
+  publish-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          # Shallow clones should be disabled for a better relevancy of analysis
+          fetch-depth: 0
+      - name: Execute lint/formatter
+        run: docker compose up --exit-code-from lint-formatter lint-formatter
+      - name: Execute tests
+        run: docker compose up --exit-code-from integration-tests integration-tests
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v7.1.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

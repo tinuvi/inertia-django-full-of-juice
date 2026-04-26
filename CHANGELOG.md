@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-04-26
+
+### Changed
+- `inertia/http.py`, `inertia/middleware.py`, and `inertia/infinite_scroll.py` now emit DEBUG records on the `inertia_django_full_of_juice` logger for every protocol decision: partial-data / partial-except / except-once filtering, once-prop survival vs. skip, deferred-group emission and partial-render suppression, merge / prepend / deep-merge / scroll metadata emission and reset-driven removal, infinite-scroll merge-intent resolution, fragment-redirect rewrite, 302→303 method conversion, stale-version refresh, and one-shot consumption of `clearHistory` / `preserveFragment` session flags. The module-level logger handles are renamed `_logger` to mark them as private. The records are pinned by tests in `inertia/tests/test_logging.py` so the phrasing is a stable contract — `sample_project/E2E_TESTING.md` references the substrings directly.
+
 ## [0.3.0] - 2026-04-26
 
 Adds support for the [Inertia.js v3 protocol](https://inertiajs.com/docs/v3/core-concepts/the-protocol.md).

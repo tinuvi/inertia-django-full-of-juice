@@ -84,3 +84,30 @@ INERTIA_LAYOUT = "base.html"
 INERTIA_SSR_ENABLED = os.getenv("INERTIA_SSR_ENABLED", "False").lower() == "true"
 INERTIA_SSR_URL = os.getenv("INERTIA_SSR_URL", "http://localhost:13714")
 INERTIA_VERSION = os.getenv("INERTIA_VERSION", "1.0")
+
+# Surface every protocol decision the library makes so that walking the
+# E2E_TESTING.md checklist against runserver shows the library's reasoning
+# in the same terminal as the request log line. Keep this on for the
+# sample project; production users opt in via their own LOGGING config.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "inertia_e2e": {
+            "format": "[inertia] %(levelname)s %(message)s",
+        },
+    },
+    "handlers": {
+        "inertia_console": {
+            "class": "logging.StreamHandler",
+            "formatter": "inertia_e2e",
+        },
+    },
+    "loggers": {
+        "inertia_django_full_of_juice": {
+            "handlers": ["inertia_console"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+    },
+}

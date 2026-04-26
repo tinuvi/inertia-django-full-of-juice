@@ -21,7 +21,7 @@ try:
 except ImportError:
     requests = None  # type: ignore[assignment]
 
-logger = logging.getLogger("inertia_django_full_of_juice")
+_logger = logging.getLogger("inertia_django_full_of_juice")
 
 P = ParamSpec("P")
 
@@ -149,12 +149,24 @@ class BaseInertiaResponseMixin:
 
         if encrypt_history_flag:
             _page["encryptHistory"] = True
+            _logger.debug(
+                "page-shell: emitting encryptHistory=True for component=%r",
+                self.component,
+            )
 
         if clear_history:
             _page["clearHistory"] = True
+            _logger.debug(
+                "page-shell: emitting clearHistory=True for component=%r (one-shot session flash consumed)",
+                self.component,
+            )
 
         if preserve_fragment_flag:
             _page["preserveFragment"] = True
+            _logger.debug(
+                "page-shell: emitting preserveFragment=True for component=%r (one-shot session flash consumed)",
+                self.component,
+            )
 
         _deferred_props = self.build_deferred_props()
         if _deferred_props:
@@ -173,6 +185,16 @@ class BaseInertiaResponseMixin:
         if _scroll_props:
             _page["scrollProps"] = _scroll_props
 
+        conditional_fields = sorted(
+            k for k in _page if k not in {"component", "props", "url", "version"}
+        )
+        _logger.debug(
+            "page-shell: component=%r url=%r prop_keys=%s conditional_fields=%s",
+            _page["component"],
+            _page["url"],
+            sorted(_page["props"].keys()),
+            conditional_fields,
+        )
         return _page
 
     def build_props(self) -> Any:
@@ -185,29 +207,72 @@ class BaseInertiaResponseMixin:
         partial_except_keys = self.request.partial_except_keys() if is_partial else []
         except_once_keys = self.request.except_once_keys()
 
+        _logger.debug(
+            "build_props: component=%r is_partial=%s partial_data=%s partial_except=%s except_once=%s",
+            self.component,
+            is_partial,
+            partial_keys,
+            partial_except_keys,
+            except_once_keys,
+        )
+
         for key in list(_props.keys()):
             if key in ALWAYS_INCLUDED_KEYS:
                 if is_partial and key in partial_except_keys:
+                    _logger.debug(
+                        "build_props: dropping always-included prop %r because it is in X-Inertia-Partial-Except",
+                        key,
+                    )
                     del _props[key]
                 continue
             if is_partial:
                 if partial_keys and key not in partial_keys:
+                    _logger.debug(
+                        "build_props: dropping prop %r because it is not in X-Inertia-Partial-Data",
+                        key,
+                    )
                     del _props[key]
                     continue
                 if key in partial_except_keys:
+                    _logger.debug(
+                        "build_props: dropping prop %r because it is in X-Inertia-Partial-Except",
+                        key,
+                    )
                     del _props[key]
                     continue
             else:
                 if isinstance(_props[key], IgnoreOnFirstLoadProp):
+                    _logger.debug(
+                        "build_props: dropping prop %r on first load (IgnoreOnFirstLoad: %s)",
+                        key,
+                        type(_props[key]).__name__,
+                    )
                     del _props[key]
                     continue
 
             prop_value = _props.get(key)
-            if isinstance(prop_value, OnceProp) and not prop_value.fresh:
+            if isinstance(prop_value, OnceProp):
                 effective_key = prop_value.key or key
-                if effective_key in except_once_keys and not (
-                    is_partial and key in partial_keys
-                ):
+                in_except_once = effective_key in except_once_keys
+                in_partial_data = is_partial and key in partial_keys
+                if in_except_once and prop_value.fresh:
+                    _logger.debug(
+                        "build_props: once prop %r (registry key=%r) survives X-Inertia-Except-Once-Props because fresh=True",
+                        key,
+                        effective_key,
+                    )
+                elif in_except_once and in_partial_data:
+                    _logger.debug(
+                        "build_props: once prop %r (registry key=%r) survives X-Inertia-Except-Once-Props because it is in X-Inertia-Partial-Data",
+                        key,
+                        effective_key,
+                    )
+                elif in_except_once and not prop_value.fresh:
+                    _logger.debug(
+                        "build_props: skipping once prop %r (registry key=%r) because it is in X-Inertia-Except-Once-Props",
+                        key,
+                        effective_key,
+                    )
                     del _props[key]
 
         return deep_transform_callables(_props)
@@ -223,6 +288,10 @@ class BaseInertiaResponseMixin:
             if not isinstance(prop, OnceProp):
                 continue
             if key in reset:
+                _logger.debug(
+                    "build_once_props: dropping once registry entry for %r because it is in X-Inertia-Reset",
+                    key,
+                )
                 continue
             if not self._is_included_in_partial(
                 key,
@@ -236,10 +305,16 @@ class BaseInertiaResponseMixin:
                 "prop": key,
                 "expiresAt": prop.expires_at,
             }
+        if _once_props:
+            _logger.debug("build_once_props: emitting onceProps=%s", _once_props)
         return _once_props
 
     def build_deferred_props(self) -> dict[str, Any] | None:
         if self.request.is_a_partial_render(self.component):
+            _logger.debug(
+                "build_deferred_props: suppressing deferredProps on partial render of component=%r",
+                self.component,
+            )
             return None
 
         _deferred_props: dict[str, Any] = {}
@@ -247,6 +322,12 @@ class BaseInertiaResponseMixin:
             if isinstance(prop, DeferredProp):
                 _deferred_props.setdefault(prop.group, []).append(key)
 
+        if _deferred_props:
+            _logger.debug(
+                "build_deferred_props: emitting deferredProps=%s for component=%r",
+                _deferred_props,
+                self.component,
+            )
         return _deferred_props
 
     def build_scroll_props(self) -> dict[str, dict[str, Any]]:
@@ -279,6 +360,12 @@ class BaseInertiaResponseMixin:
             metadata = prop.scroll_metadata()
             metadata["reset"] = key in reset
             out[key] = metadata
+        if out:
+            _logger.debug(
+                "build_scroll_props: emitting scrollProps=%s for component=%r",
+                out,
+                self.component,
+            )
         return out
 
     def build_merge_kinds(self) -> dict[str, list[str]]:
@@ -300,6 +387,10 @@ class BaseInertiaResponseMixin:
             if not prop.should_merge():
                 continue
             if key in reset:
+                _logger.debug(
+                    "build_merge_kinds: dropping merge metadata for %r because it is in X-Inertia-Reset",
+                    key,
+                )
                 continue
             if not self._is_included_in_partial(
                 key,
@@ -317,6 +408,14 @@ class BaseInertiaResponseMixin:
                 out["deepMergeProps"].append(key)
             for path in prop.match_on():
                 out["matchPropsOn"].append(f"{key}.{path}")
+        if any(out.values()):
+            _logger.debug(
+                "build_merge_kinds: mergeProps=%s prependProps=%s deepMergeProps=%s matchPropsOn=%s",
+                out["mergeProps"],
+                out["prependProps"],
+                out["deepMergeProps"],
+                out["matchPropsOn"],
+            )
         return out
 
     def build_first_load(self, data: Any) -> str:
@@ -352,12 +451,16 @@ class BaseInertiaResponseMixin:
                     headers={"Content-Type": "application/json"},
                 )
                 response.raise_for_status()
+                _logger.debug(
+                    "first-load shell: SSR render succeeded for component=%r",
+                    self.component,
+                )
                 return {
                     **response.json(),
                     **self.template_data,
                 }, INERTIA_SSR_TEMPLATE
             except Exception:
-                logger.exception("SSR render request failed")
+                _logger.exception("SSR render request failed")
 
         # Escape characters that would let an attacker break out of the
         # `<script type="application/json">` block in the v3 page-shell.
@@ -368,6 +471,13 @@ class BaseInertiaResponseMixin:
             .replace(">", "\\u003e")
             .replace("&", "\\u0026")
             .replace("/", "\\u002f")
+        )
+        escaped_count = len(safe_data) - len(data)
+        _logger.debug(
+            "first-load shell: rendering inline JSON for component=%r (raw_len=%d, escaped_chars_added=%d)",
+            self.component,
+            len(data),
+            escaped_count,
         )
         return {
             "page": safe_data,
@@ -434,6 +544,7 @@ def render(
 
 
 def location(location: str) -> HttpResponse:
+    _logger.debug("location(): emitting 409 with X-Inertia-Location=%r", location)
     return HttpResponse(
         "",
         status=HTTPStatus.CONFLICT,
@@ -444,6 +555,7 @@ def location(location: str) -> HttpResponse:
 
 
 def inertia_redirect(url: str) -> HttpResponse:
+    _logger.debug("inertia_redirect(): emitting 409 with X-Inertia-Redirect=%r", url)
     return HttpResponse(
         "",
         status=HTTPStatus.CONFLICT,
@@ -454,14 +566,17 @@ def inertia_redirect(url: str) -> HttpResponse:
 
 
 def encrypt_history(request: HttpRequest, value: bool = True) -> None:
+    _logger.debug("encrypt_history(): set request flag to %s", value)
     setattr(request, INERTIA_REQUEST_ENCRYPT_HISTORY, value)
 
 
 def clear_history(request: HttpRequest) -> None:
+    _logger.debug("clear_history(): set session flash flag (one-shot)")
     request.session[INERTIA_SESSION_CLEAR_HISTORY] = True
 
 
 def preserve_fragment(request: HttpRequest) -> None:
+    _logger.debug("preserve_fragment(): set session flash flag (one-shot)")
     request.session[INERTIA_SESSION_PRESERVE_FRAGMENT] = True
 
 
@@ -470,6 +585,12 @@ def errors_response(
     message: str = "The given data was invalid.",
     status: int = 422,
 ) -> JsonResponse:
+    _logger.debug(
+        "errors_response(): status=%d fields=%s message=%r",
+        status,
+        sorted(errors.keys()),
+        message,
+    )
     return JsonResponse(
         {"message": message, "errors": errors},
         status=status,

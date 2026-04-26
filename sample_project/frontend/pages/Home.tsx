@@ -57,14 +57,14 @@ export default function Home() {
 					</Link>
 				</li>
 				<li>
-					<a href="/location/">
+					<Link href="/location/">
 						location() — 409 + X-Inertia-Location (external)
-					</a>
+					</Link>
 				</li>
 				<li>
-					<a href="/redirect-fragment/">
+					<Link href="/redirect-fragment/">
 						Fragment redirect (middleware rewrites 302#frag → 409)
-					</a>
+					</Link>
 				</li>
 				<li>
 					<Link href="/preserve-fragment/#users">

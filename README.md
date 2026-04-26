@@ -1,5 +1,8 @@
 # Inertia.js Django Adapter
 
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=tinuvi_inertia-django-full-of-juice&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=tinuvi_inertia-django-full-of-juice)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=tinuvi_inertia-django-full-of-juice&metric=coverage)](https://sonarcloud.io/summary/new_code?id=tinuvi_inertia-django-full-of-juice)
+
 This adapter supports the Inertia.js v3 protocol, including once props, prepend / deep-merge variants, `matchPropsOn`, infinite scroll, fragment preservation across redirects, and the `useHttp` validation-response shape.
 
 ## Installation

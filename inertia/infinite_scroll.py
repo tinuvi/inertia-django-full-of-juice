@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Callable
 from typing import Any, TypeVar
 
@@ -6,6 +7,8 @@ from django.http import HttpRequest
 from .prop_classes import CallableProp, MergeableProp, MergeStrategy
 
 T = TypeVar("T")
+
+_logger = logging.getLogger("inertia_django_full_of_juice")
 
 
 class InfiniteScrollProp(CallableProp[T], MergeableProp):
@@ -54,7 +57,13 @@ class InfiniteScrollProp(CallableProp[T], MergeableProp):
 
     def merge_strategy(self) -> MergeStrategy:
         intent = self._request.headers.get("X-Inertia-Infinite-Scroll-Merge-Intent", "")
-        return "prepend" if intent == "prepend" else "append"
+        strategy: MergeStrategy = "prepend" if intent == "prepend" else "append"
+        _logger.debug(
+            "InfiniteScrollProp: X-Inertia-Infinite-Scroll-Merge-Intent=%r → strategy=%s",
+            intent,
+            strategy,
+        )
+        return strategy
 
     def match_on(self) -> list[str]:
         return list(self._match_on)

@@ -52,6 +52,10 @@ unfixable = ["B", "SIM"]
 DJANGO_SETTINGS_MODULE = "inertia.tests.settings"
 django_find_project = false
 
+[tool.coverage.run]
+relative_files = true
+source = ["inertia"]
+
 [tool.mypy]
 python_version = "3.14"
 plugins = ["mypy_django_plugin.main"]

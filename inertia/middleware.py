@@ -1,3 +1,4 @@
+import logging
 from typing import Callable
 
 from django.contrib import messages
@@ -8,6 +9,8 @@ from .http import inertia_redirect, location
 from .settings import settings
 
 FRAGMENT_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+
+_logger = logging.getLogger("inertia_django_full_of_juice")
 
 
 class InertiaMiddleware:
@@ -21,16 +24,42 @@ class InertiaMiddleware:
         # CSRF path. We'll manually add a CSRF token for every request here.
         get_token(request)
 
-        if not self.is_inertia_request(request):
+        is_inertia = self.is_inertia_request(request)
+        _logger.debug(
+            "middleware: method=%s path=%r is_inertia=%s downstream_status=%s",
+            request.method,
+            request.get_full_path(),
+            is_inertia,
+            response.status_code,
+        )
+
+        if not is_inertia:
             return response
 
         if self.is_fragment_redirect(response):
-            return inertia_redirect(response.headers.get("Location", ""))
+            location_header = response.headers.get("Location", "")
+            _logger.debug(
+                "middleware: fragment redirect detected (status=%s, location=%r) → rewriting to 409 X-Inertia-Redirect",
+                response.status_code,
+                location_header,
+            )
+            return inertia_redirect(location_header)
 
         if self.is_non_post_redirect(request, response):
+            _logger.debug(
+                "middleware: converting %s redirect from %s to 303 (per v3 method-conversion contract)",
+                request.method,
+                response.status_code,
+            )
             response.status_code = 303
 
         if self.is_stale(request):
+            client_version = request.headers.get("X-Inertia-Version", "")
+            _logger.debug(
+                "middleware: stale version (client=%r, server=%r) → 409 X-Inertia-Location for hard reload",
+                client_version,
+                settings.INERTIA_VERSION,
+            )
             return self.force_refresh(request)
 
         return response

@@ -12,7 +12,7 @@ This adapter supports the Inertia.js v3 protocol, including once props, prepend 
 Install the following python package via pip
 
 ```bash
-pip install inertia-django
+pip install inertia-django-full-of-juice
 ```
 
 Add the Inertia app to your `INSTALLED_APPS` in `settings.py`
@@ -35,15 +35,13 @@ MIDDLEWARE = [
 ]
 ```
 
-Finally, create a layout which exposes `{% block inertia %}{% endblock %}` in the body and set the path to this layout as `INERTIA_LAYOUT` in your `settings.py` file.
+Finally, create a layout which exposes `{% block inertia %}{% endblock %}` in the body and set the path to this layout as `INERTIA_LAYOUT` in your `settings.py` file. If you plan to enable [SSR](#ssr), your layout must also expose `{% block inertia_head %}{% endblock %}` in the `<head>` so the server-rendered head tags can be injected. See `sample_project/templates/base.html` for a complete example.
 
 Now you're all set!
 
 ### Frontend
 
-Django specific frontend docs coming soon. For now, we recommend installing [django_vite](https://github.com/MrBin99/django-vite)
-and following the commits on the Django Vite [example repo](https://github.com/MrBin99/django-vite-example). Once Vite is setup with
-your frontend of choice, just replace the contents of `entry.js` with [this file (example in react)](https://github.com/BrandonShar/inertia-rails-template/blob/main/app/frontend/entrypoints/application.jsx)
+The `sample_project/` directory is a complete, working reference: a Django + React app wired up with [django-vite](https://github.com/MrBin99/django-vite) (HMR in dev, manifest in prod) and the Inertia.js v3 client. Start from its frontend entrypoint (`sample_project/frontend/main.tsx`), page resolver (`sample_project/frontend/inertia-resolver.tsx`), and layout (`sample_project/templates/base.html`) — see `sample_project/README.md` for setup.
 
 You can also check out the official Inertia docs at https://inertiajs.com/.
 
@@ -154,7 +152,7 @@ via Django's `model_to_dict` method excluding the field `password`. This method 
 
 #### InertiaMeta
 
-Starting in Inertia Django v1.2, Inertia Django supports an InertiaMeta nested class. Similar to Django Rest Framework's serializers, any class (not just models) can contain an InertiaMeta class which can specify how that class should be serialized to JSON. At this time, in only supports `fields`, but this may be extended in future versions.
+Inertia Django supports an InertiaMeta nested class. Similar to Django Rest Framework's serializers, any class (not just models) can contain an InertiaMeta class which can specify how that class should be serialized to JSON. At this time, it only supports `fields`, but this may be extended in future versions.
 
 ```python
 class User(models.Model):
@@ -199,7 +197,7 @@ def example(request):
 
 ### Deferred Props
 
-As of version 2.0, Inertia supports the ability to defer the fetching of props until after the page has been initially rendered. Essentially this is similar to the concept of `Optional props` however Inertia provides convenient frontend components to automatically fetch the deferred props after the page has initially loaded, instead of requiring the user to initiate a reload. For more info, see [Deferred props](https://inertiajs.com/deferred-props) in the Inertia documentation.
+Inertia supports the ability to defer the fetching of props until after the page has been initially rendered. Essentially this is similar to the concept of `Optional props` however Inertia provides convenient frontend components to automatically fetch the deferred props after the page has initially loaded, instead of requiring the user to initiate a reload. For more info, see [Deferred props](https://inertiajs.com/deferred-props) in the Inertia documentation.
 
 To mark props as deferred on the server side use the `defer` function.
 
@@ -485,9 +483,8 @@ class LogoutView(auth_views.LogoutView):
 
 #### Backend
 
-* Ensure `requests` is installed, so inertia-django can do SSR requests.
-  * `requests` is configured as a dependency if you install the `[ssr]` extra,
-    e.g. `inertia-django[ssr]` in your requirements.
+* `requests` is used to make the SSR render call. It ships as a core
+  dependency of this package, so no extra install step is needed.
 * Enable SSR via the `INERTIA_SSR_URL` and `INERTIA_SSR_ENABLED` settings.
 * Exclude specific routes from SSR with `INERTIA_SSR_EXCLUDE`, a list of regex
   patterns matched (`re.search`) against `request.path`. A request whose path
@@ -504,7 +501,19 @@ class LogoutView(auth_views.LogoutView):
 
 #### Frontend
 
-Coming Soon!
+You need an SSR-capable build of your frontend that runs as a Node server and
+answers the render calls Django POSTs to `INERTIA_SSR_URL`. The `sample_project/`
+ships a working setup:
+
+* `sample_project/frontend/ssr.tsx` — the SSR entrypoint
+  (`@inertiajs/react/server` + `createServer`).
+* `npm run build-ssr` builds it to `sample_project/frontend/dist/ssr.js`; run it
+  with `node frontend/dist/ssr.js` (defaults to port `13714`).
+* `sample_project/Dockerfile.ssr` and `sample_project/docker-compose.yml` show
+  the same flow as a dedicated SSR sidecar service.
+
+For the framework-level details, follow the official
+[Inertia.js server-side rendering docs](https://inertiajs.com/server-side-rendering).
 
 ## Settings
 

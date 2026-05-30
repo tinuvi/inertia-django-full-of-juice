@@ -174,6 +174,18 @@ The library compares the request's `X-Inertia-Version` against `INERTIA_VERSION`
 
 ---
 
+## 11. SSR route exclusion (`INERTIA_SSR_EXCLUDE`)
+
+Unlike the rest of this checklist (which runs with SSR **off**), this section needs SSR **on** plus a running SSR bundle server. Restart Django with `INERTIA_SSR_ENABLED=true` / `INERTIA_SSR_URL=…` pointed at your SSR server, then set an exclusion pattern in `sample/settings.py` that matches one route but not another, e.g. `INERTIA_SSR_EXCLUDE = [r'^/lists/']`. The exclusion is matched with `re.search` against `request.path`.
+
+| Step | URL / action | Expected (network + DOM) | Expected log substring |
+|------|--------------|--------------------------|------------------------|
+| 11.1 | `view-source:` an **excluded** path (`/lists/`) | First-load shell is the inline-JSON client shell (`<script data-page="app" type="application/json">…</script>` + `<div id="app"></div>`). **No** SSR-rendered `<body>`/`<head>` markup, and **no** POST to the SSR server for this path. Renders client-side only. | `first-load shell: skipping SSR for path='/lists/' (matched INERTIA_SSR_EXCLUDE pattern '^/lists/')` followed by `first-load shell: rendering inline JSON for component='Lists'` |
+| 11.2 | `view-source:` a **non-excluded** path (`/`) | SSR proceeds: the shell contains server-rendered markup from the SSR server (`inertia_ssr.html`). No `skipping SSR` line for this path. | `first-load shell: SSR render succeeded for component='Home'` |
+| 11.3 | Set `INERTIA_SSR_EXCLUDE = []`, restart Django, reload `/lists/` | SSR now proceeds for `/lists/` too — confirming the opt-out is pattern-driven, not route-intrinsic. | `first-load shell: SSR render succeeded for component='Lists'` |
+
+---
+
 ## Cross-cutting assertions to watch for
 
 These are not separate steps — verify them while running the checklist.
@@ -220,3 +232,4 @@ Library tests in `inertia/tests/test_logging.py` assert the exact phrasing of ev
 | 8 | `encrypt_history()`, `clear_history()`, session-flash one-shot consumption |
 | 9 | `InertiaMiddleware` 302→303 conversion on PUT/PATCH/DELETE |
 | 10 | `INERTIA_VERSION` mismatch → 409 `X-Inertia-Location` |
+| 11 | `INERTIA_SSR_EXCLUDE`, per-path SSR opt-out, `build_first_load_context_and_template` SSR gate |

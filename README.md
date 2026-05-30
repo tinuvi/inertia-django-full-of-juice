@@ -449,6 +449,11 @@ class LogoutView(auth_views.LogoutView):
   * `requests` is configured as a dependency if you install the `[ssr]` extra,
     e.g. `inertia-django[ssr]` in your requirements.
 * Enable SSR via the `INERTIA_SSR_URL` and `INERTIA_SSR_ENABLED` settings.
+* Exclude specific routes from SSR with `INERTIA_SSR_EXCLUDE`, a list of regex
+  patterns matched (`re.search`) against `request.path`. A request whose path
+  matches any pattern skips the SSR render call and falls back to the
+  client-side shell — useful for authenticated, per-user pages where SSR adds
+  little value. Example: `INERTIA_SSR_EXCLUDE = [r'^/admin/', r'^/dashboard/']`.
 
 #### Frontend
 
@@ -466,6 +471,7 @@ INERTIA_LAYOUT = 'layout.html' # required and has no default
 INERTIA_JSON_ENCODER = CustomJsonEncoder # defaults to inertia.utils.InertiaJsonEncoder
 INERTIA_SSR_URL = 'http://localhost:13714' # defaults to http://localhost:13714
 INERTIA_SSR_ENABLED = False # defaults to False
+INERTIA_SSR_EXCLUDE = [r'^/admin/'] # defaults to []; regex patterns matched (re.search) against request.path — matching paths skip SSR
 INERTIA_ENCRYPT_HISTORY = False # defaults to False
 ```
 

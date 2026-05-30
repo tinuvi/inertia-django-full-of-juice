@@ -10,6 +10,8 @@ record fires.
 
 import logging
 
+from django.test import override_settings
+
 from inertia.http import (
     clear_history,
     encrypt_history,
@@ -412,3 +414,23 @@ class MiddlewareLoggingTestCase(InertiaTestCase):
         ]
         self.assertTrue(emit)
         self.assertIn("client='some-nonsense'", emit[-1])
+
+
+@override_settings(
+    INERTIA_SSR_ENABLED=True,
+    INERTIA_SSR_URL="ssr-url",
+    INERTIA_SSR_EXCLUDE=[r"^/props/"],
+)
+class SSRExclusionLoggingTestCase(InertiaTestCase):
+    def test_excluded_path_logs_skip_record(self):
+        with self.assertLogs(_LOGGER, level="DEBUG") as cm:
+            self.client.get("/props/")
+
+        emit = [
+            m
+            for m in _messages(cm.records)
+            if m.startswith("first-load shell: skipping SSR for path=")
+        ]
+        self.assertTrue(emit, msg=_messages(cm.records))
+        self.assertIn("/props/", emit[-1])
+        self.assertIn("^/props/", emit[-1])

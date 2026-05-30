@@ -618,3 +618,10 @@ def date_prop_test(request):
 
 def render_helper_with_props_test(request):
     return render(request, "TestComponent", props={"hello": "world"})
+
+
+@inertia("TestComponent")
+def string_callable_props_test(request):
+    # Plain strings that share a name with a builtin callable must be sent
+    # verbatim, never invoked (a str is not callable in Python).
+    return {"first": "date", "second": "trim"}

@@ -1,11 +1,10 @@
 """Tests for the library's DEBUG logging surface.
 
 These verify that the protocol decision points emit deterministic log
-records on the ``inertia_django_full_of_juice`` logger. The E2E
-checklist in ``sample_project/E2E_TESTING.md`` correlates these log
-lines with browser actions, so the assertions here pin the
-human-readable phrasing as well as the conditions under which each
-record fires.
+records on the ``inertia_django_full_of_juice`` logger. The assertions
+here pin the human-readable phrasing as well as the conditions under
+which each record fires, treating the log lines as a stable contract
+for anyone correlating library behavior against a request log.
 """
 
 import logging

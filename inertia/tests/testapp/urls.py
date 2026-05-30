@@ -74,4 +74,5 @@ urlpatterns = [
     path("merge-after-non-merging-defer/", views.merge_after_non_merging_defer_test),
     path("date-prop/", views.date_prop_test),
     path("render-helper-with-props/", views.render_helper_with_props_test),
+    path("string-callable-props/", views.string_callable_props_test),
 ]

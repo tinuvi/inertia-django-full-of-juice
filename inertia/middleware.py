@@ -53,7 +53,7 @@ class InertiaMiddleware:
             )
             response.status_code = 303
 
-        if self.is_stale(request):
+        if self.is_stale_inertia_get(request):
             client_version = request.headers.get("X-Inertia-Version", "")
             _logger.debug(
                 "middleware: stale version (client=%r, server=%r) → 409 X-Inertia-Location for hard reload",

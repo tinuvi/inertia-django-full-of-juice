@@ -10,10 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `INERTIA_SSR_EXCLUDE` setting — a list of regex pattern strings matched (via `re.search`) against `request.path`. When a request path matches any pattern, `inertia/http.py` skips the SSR render call in `build_first_load_context_and_template` and falls back to the inline-JSON client-side shell, mirroring Inertia v3's "Excluding Routes from SSR". Patterns are compiled once per distinct pattern tuple (`_compiled_ssr_exclude`), following Django's own `SECURE_REDIRECT_EXEMPT` idiom in `SecurityMiddleware`. Emits a `first-load shell: skipping SSR for path=… (matched INERTIA_SSR_EXCLUDE pattern …)` DEBUG record on the `inertia_django_full_of_juice` logger. Defaults to `[]` (no exclusions). Mirrors Laravel's per-path SSR opt-out (`Inertia::withoutSsr` / the gateway `ExcludesSsrPaths` contract); diverges deliberately from Laravel's glob-against-full-URL-and-path matching to regex-against-`request.path` to match Django convention.
 - `inertia/apps.py` with an `InertiaConfig` app config that registers a Django system check (`inertia.E001`) validating that every `INERTIA_SSR_EXCLUDE` entry is a compilable regex. A malformed pattern is reported at startup (`runserver` / `manage.py check` / `migrate`) instead of raising at request time.
 
+### Fixed
+- The `409 Conflict` + `X-Inertia-Location` stale-asset hard reload is now sent only for `GET` requests. `InertiaMiddleware` previously issued it on any method, so a stale `X-Inertia-Version` on a `POST` / `PUT` / `PATCH` / `DELETE` was wrongly converted to a 409. Per the v3 protocol these responses are GET-only — the follow-up GET after a redirect carries the version check — so the middleware now gates on the existing `is_stale_inertia_get`.
+
 ## [0.3.1] - 2026-04-26
 
 ### Changed
-- `inertia/http.py`, `inertia/middleware.py`, and `inertia/infinite_scroll.py` now emit DEBUG records on the `inertia_django_full_of_juice` logger for every protocol decision: partial-data / partial-except / except-once filtering, once-prop survival vs. skip, deferred-group emission and partial-render suppression, merge / prepend / deep-merge / scroll metadata emission and reset-driven removal, infinite-scroll merge-intent resolution, fragment-redirect rewrite, 302→303 method conversion, stale-version refresh, and one-shot consumption of `clearHistory` / `preserveFragment` session flags. The module-level logger handles are renamed `_logger` to mark them as private. The records are pinned by tests in `inertia/tests/test_logging.py` so the phrasing is a stable contract — `sample_project/E2E_TESTING.md` references the substrings directly.
+- `inertia/http.py`, `inertia/middleware.py`, and `inertia/infinite_scroll.py` now emit DEBUG records on the `inertia_django_full_of_juice` logger for every protocol decision: partial-data / partial-except / except-once filtering, once-prop survival vs. skip, deferred-group emission and partial-render suppression, merge / prepend / deep-merge / scroll metadata emission and reset-driven removal, infinite-scroll merge-intent resolution, fragment-redirect rewrite, 302→303 method conversion, stale-version refresh, and one-shot consumption of `clearHistory` / `preserveFragment` session flags. The module-level logger handles are renamed `_logger` to mark them as private. The records are pinned by tests in `inertia/tests/test_logging.py` so the phrasing is a stable contract.
 
 ## [0.3.0] - 2026-04-26
 
@@ -37,7 +40,7 @@ Adds support for the [Inertia.js v3 protocol](https://inertiajs.com/docs/v3/core
 - The first-load page shell now emits `<script data-page="app" type="application/json">…</script>` followed by a bare `<div id="app"></div>`, replacing the legacy `<div id="app" data-page="…">` form. The v3 client refuses to boot from the legacy attribute. The page-data JSON has `<`, `>`, and `&` escaped as `<` / `>` / `&` to prevent script-context breakouts. `inertia_div()` test helper updated accordingly.
 
 ### Added
-- `sample_project/` — thin Django + React app exercising every server helper (`once`, `defer`, `merge`, `prepend`, `deep_merge`, `infinite_scroll`, `preserve_fragment`, `inertia_redirect`, `useForm` validation), with an `E2E_TESTING.md` regression checklist.
+- `sample_project/` — thin Django + React app exercising every server helper (`once`, `defer`, `merge`, `prepend`, `deep_merge`, `infinite_scroll`, `preserve_fragment`, `inertia_redirect`, `useForm` validation).
 
 ## [0.2.0] - 2026-04-25
 

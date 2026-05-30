@@ -90,10 +90,10 @@ INERTIA_SSR_URL = os.getenv("INERTIA_SSR_URL", "http://localhost:13714")
 INERTIA_SSR_EXCLUDE = [p for p in os.getenv("INERTIA_SSR_EXCLUDE", "").split(",") if p]
 INERTIA_VERSION = os.getenv("INERTIA_VERSION", "1.0")
 
-# Surface every protocol decision the library makes so that walking the
-# E2E_TESTING.md checklist against runserver shows the library's reasoning
-# in the same terminal as the request log line. Keep this on for the
-# sample project; production users opt in via their own LOGGING config.
+# Surface every protocol decision the library makes so that exercising the
+# sample app against runserver shows the library's reasoning in the same
+# terminal as the request log line. Keep this on for the sample project;
+# production users opt in via their own LOGGING config.
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,

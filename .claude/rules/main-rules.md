@@ -9,12 +9,24 @@ Imperative guidance for working on `inertia-django-full-of-juice`. Follow these 
 - When you see `getLogger(__name__)`, change it to `getLogger("inertia_django_full_of_juice")`.
 - Keep new code typed. The package ships PEP 561 typing — type-hint anything you add or touch.
 
+## Updating poetry settings
+
+- Update `poetry.lock` when `pyproject.toml` changes:
+    ```bash
+    docker compose run --rm --remove-orphans integration-tests poetry update
+    ```
+- Build the Docker images to reflect the changes:
+    ```bash
+    docker compose build integration-tests lint-formatter
+    ```
+
 ## Testing
 
 - Run the full library suite before declaring a change complete:
     ```bash
     docker compose run --remove-orphans --rm integration-tests
     ```
+- Run the `mutation-testing` skill on the new or changed `inertia/` files and close the resulting test gaps before declaring the change complete.
 - When you change the library, run the Playwright E2E flow against the dockerized sample before declaring the change complete:
     ```bash
     docker compose -f sample_project/docker-compose.yml up --build -d --wait

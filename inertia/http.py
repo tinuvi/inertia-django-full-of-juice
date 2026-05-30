@@ -483,7 +483,9 @@ class BaseInertiaResponseMixin:
     ) -> tuple[dict[str, Any], str]:
         if settings.INERTIA_SSR_ENABLED and not self._is_ssr_excluded():
             try:
-                response = requests.post(
+                # ``requests`` is a hard dependency; the module-level ``None`` fallback
+                # only guards the optional import, so this path runs only when present.
+                response = requests.post(  # pyrefly: ignore[missing-attribute]
                     f"{settings.INERTIA_SSR_URL}/render",
                     data=data,
                     headers={"Content-Type": "application/json"},
@@ -536,7 +538,10 @@ class InertiaResponse(BaseInertiaResponseMixin, HttpResponse):
         *args: Any,
         **kwargs: Any,
     ) -> None:
-        self.request = InertiaRequest(request)
+        # django-stubs types ``HttpRequest.__new__`` with no parameters, so pyrefly
+        # mis-resolves the ``InertiaRequest(request)`` constructor (bad-argument-count
+        # / bad-assignment). The runtime ``__init__`` accepts the request as intended.
+        self.request = InertiaRequest(request)  # pyrefly: ignore
         self.component = component
         self.props = props or {}
         self.template_data = template_data or {}

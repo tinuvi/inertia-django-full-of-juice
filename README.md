@@ -454,6 +454,13 @@ class LogoutView(auth_views.LogoutView):
   matches any pattern skips the SSR render call and falls back to the
   client-side shell — useful for authenticated, per-user pages where SSR adds
   little value. Example: `INERTIA_SSR_EXCLUDE = [r'^/admin/', r'^/dashboard/']`.
+  Invalid regexes are reported by a Django system check (`inertia.E001`) at
+  startup rather than failing on the first request.
+  * **Porting from Laravel:** these are Python regexes matched with `re.search`
+    against `request.path`, which keeps its leading slash and is *not*
+    anchored — unlike Laravel, which matches a glob against the slash-trimmed
+    path and full URL. A Laravel `Inertia::withoutSsr('admin/*')` becomes
+    `INERTIA_SSR_EXCLUDE = [r'^/admin/']` here.
 
 #### Frontend
 

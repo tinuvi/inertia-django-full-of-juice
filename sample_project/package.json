@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build-ssr": "vite build --ssr frontend/ssr.tsx",
+    "build-ssr": "vite build --ssr ssr.tsx",
     "lint": "biome check frontend",
     "format": "biome format --write frontend"
   },

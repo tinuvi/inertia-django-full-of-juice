@@ -73,7 +73,10 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 DJANGO_VITE = {
     "default": {
-        "dev_mode": DEBUG,
+        # Defaults to DEBUG (Vite dev server) but can be forced off so a
+        # container serves the built manifest while still running with DEBUG=True
+        # (so runserver serves the hashed assets from frontend/dist).
+        "dev_mode": os.getenv("DJANGO_VITE_DEV_MODE", str(DEBUG)).lower() == "true",
         "dev_server_host": os.getenv("DJANGO_VITE_DEV_SERVER_HOST", "localhost"),
         "dev_server_port": int(os.getenv("DJANGO_VITE_DEV_SERVER_PORT", "5173")),
         "manifest_path": BASE_DIR / "frontend" / "dist" / "manifest.json",
@@ -83,6 +86,8 @@ DJANGO_VITE = {
 INERTIA_LAYOUT = "base.html"
 INERTIA_SSR_ENABLED = os.getenv("INERTIA_SSR_ENABLED", "False").lower() == "true"
 INERTIA_SSR_URL = os.getenv("INERTIA_SSR_URL", "http://localhost:13714")
+# Comma-separated regex patterns; matching request paths skip SSR.
+INERTIA_SSR_EXCLUDE = [p for p in os.getenv("INERTIA_SSR_EXCLUDE", "").split(",") if p]
 INERTIA_VERSION = os.getenv("INERTIA_VERSION", "1.0")
 
 # Surface every protocol decision the library makes so that walking the

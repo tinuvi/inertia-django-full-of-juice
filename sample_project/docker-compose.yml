@@ -1,0 +1,54 @@
+services:
+  ssr:
+    build:
+      context: ..
+      dockerfile: sample_project/Dockerfile.ssr
+    image: inertia-django-sample-ssr:latest
+    environment:
+      NODE_PORT: "13714"
+    expose:
+      - "13714"
+
+  sample_project_without_ssr:
+    build:
+      context: ..
+      dockerfile: sample_project/Dockerfile
+    image: inertia-django-sample:latest
+    ports:
+      - "8000:8000"
+    environment:
+      DJANGO_DEBUG: "True"
+      DJANGO_VITE_DEV_MODE: "False"
+      INERTIA_SSR_ENABLED: "False"
+    command: ["./scripts/start-web.sh"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/').read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 10s
+
+  sample_project_with_ssr:
+    build:
+      context: ..
+      dockerfile: sample_project/Dockerfile
+    image: inertia-django-sample:latest
+    ports:
+      - "8001:8000"
+    environment:
+      DJANGO_DEBUG: "True"
+      DJANGO_VITE_DEV_MODE: "False"
+      INERTIA_SSR_ENABLED: "True"
+      INERTIA_SSR_URL: "http://ssr:13714"
+      # Excludes /lists/ from SSR; everything else is server-rendered.
+      INERTIA_SSR_EXCLUDE: "^/lists/"
+    command: ["./scripts/start-web.sh"]
+    depends_on:
+      ssr:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/').read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 10s

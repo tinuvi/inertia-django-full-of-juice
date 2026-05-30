@@ -1,0 +1,19 @@
+# syntax=docker/dockerfile:1
+# Node SSR sidecar — runs the @inertiajs/react/server renderer that Django POSTs
+# to at INERTIA_SSR_URL when SSR is enabled. Build context is the repo root.
+
+FROM node:22-slim AS build
+WORKDIR /app
+COPY sample_project/package.json sample_project/package-lock.json ./
+RUN npm ci
+COPY sample_project/ ./
+RUN npm run build-ssr
+
+FROM node:22-slim
+WORKDIR /app
+ENV NODE_PORT=13714
+# The SSR build externalizes node deps, so node_modules is needed at runtime.
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/frontend/dist ./frontend/dist
+EXPOSE 13714
+CMD ["node", "frontend/dist/ssr.js"]

@@ -23,6 +23,11 @@ from inertia import (
 from inertia.http import clear_history, encrypt_history
 
 
+def health(request: HttpRequest) -> HttpResponse:
+    # Plain 200, no Inertia/Vite dependency — used by the compose healthcheck.
+    return HttpResponse("ok")
+
+
 @inertia("Home")
 def home(request: HttpRequest) -> dict:
     return {

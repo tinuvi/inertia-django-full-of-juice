@@ -53,6 +53,24 @@ npm run build-ssr       # SSR bundle  → frontend/dist/ssr.js
 
 To enable SSR at runtime: `INERTIA_SSR_ENABLED=true` and run `node frontend/dist/ssr.js` (defaults to port 13714).
 
+## Docker (E2E stack)
+
+`docker-compose.yml` builds the app twice and runs it with a Node SSR sidecar:
+
+| Service                       | Port   | Config                                        |
+|-------------------------------|--------|-----------------------------------------------|
+| `sample_project_without_ssr`  | `8000` | SSR disabled                                  |
+| `sample_project_with_ssr`     | `8001` | SSR enabled, `INERTIA_SSR_EXCLUDE=^/lists/`   |
+| `ssr`                         | —      | `node frontend/dist/ssr.js` renderer          |
+
+```bash
+# from the repo root
+docker compose -f sample_project/docker-compose.yml up --build -d --wait
+```
+
+The Playwright end-to-end suite in [`../playwright_e2e`](../playwright_e2e) runs against this
+stack — see that folder's README.
+
 ## What the sample exercises
 
 | Page  | URL          | Library features                                         |

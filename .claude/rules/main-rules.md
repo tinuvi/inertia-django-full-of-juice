@@ -15,7 +15,14 @@ Imperative guidance for working on `inertia-django-full-of-juice`. Follow these 
     ```bash
     docker compose run --remove-orphans --rm integration-tests
     ```
-- When you change the v3 protocol surface (headers, page-object fields, middleware behavior, prop kinds), also walk `sample_project/E2E_TESTING.md` end-to-end against a live Django + Vite. Update the checklist in the same commit if the observable behavior changes.
+- When you change the library, run the Playwright E2E flow against the dockerized sample before declaring the change complete:
+    ```bash
+    docker compose -f sample_project/docker-compose.yml up --build -d --wait
+    (cd playwright_e2e && npm ci && npm run install-browsers && npm run test && npm run test:ssr)
+    docker compose -f sample_project/docker-compose.yml down -v --remove-orphans
+    ```
+  See `playwright_e2e/README.md` for the full setup, the two service targets, and how the projects map.
+- When the change adds or alters a v3 surface (headers, page-object fields, middleware behavior, prop kinds, SSR behavior), add or update a spec covering it in the same commit — put SSR-specific specs in `playwright_e2e/tests-ssr/`, the rest in `playwright_e2e/tests/`.
 - When the v3 protocol introduces new behavior, mirror Laravel's reference implementation (`inertiajs/inertia-laravel`, branch `3.x`). Cite the relevant Laravel file/line in the commit body when intentionally diverging.
 
 ## Lint & format
@@ -32,14 +39,12 @@ Imperative guidance for working on `inertia-django-full-of-juice`. Follow these 
 ## Documentation
 
 - Update `CHANGELOG.md` only when `./inertia/` (the library source) changes, but not including the `tests` folder. Use the active `[X.Y.Z]` heading and `Added` / `Changed` / `Fixed` / `Removed` subsections. Skip it for repo-tooling or sample-project edits.
-- Update `sample_project/E2E_TESTING.md` whenever you add or change a v3 surface — add a row under the relevant section, not a one-off page.
 - Update `README.md` when public API, install steps, or supported Python/Django versions change.
 - Do **not** create new top-level docs (`*.md`) unless explicitly asked.
 
 ## Commits
 
 - Use Conventional Commits.
-- Split work so that one commit changes one concern. A library fix and a sample-project tweak go in two separate commits, even when discovered together.
 
 ## Deployment
 

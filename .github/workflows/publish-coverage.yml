@@ -28,6 +28,6 @@ jobs:
       - name: Execute tests
         run: docker compose up --exit-code-from integration-tests integration-tests
       - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v7.1.0
+        uses: SonarSource/sonarqube-scan-action@v8.1.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

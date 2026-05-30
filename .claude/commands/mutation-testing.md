@@ -12,16 +12,7 @@ Django bootstrap is **not** baked into the repo. mutmut drives tests through rep
 
 ## Prerequisites
 
-Before running any mutmut command, confirm these two inputs. If the user did not provide them in the invoking prompt, **ask and wait** for an answer — do not guess.
-
-1. **Target module.** The exact path of the library source file to mutate (e.g., `inertia/http.py`, `inertia/middleware.py`, `inertia/utils.py`). Must have a colocated test file under `inertia/tests/test_*.py` (e.g., `inertia/tests/test_middleware.py`). Files under `inertia/tests/` themselves are out of scope.
-2. **Git worktree mode.** Whether to run inside a dedicated git worktree or in the current checkout:
-   - **Worktree**: isolates `mutants/`, `mutants.sqlite`, the new `[tool.mutmut]` block in `pyproject.toml`, and the root `conftest.py` from the main checkout. Required if running mutation testing on several files in parallel or to keep the main checkout clean.
-   - **In-place**: runs in the current directory. Fine for a one-off, sequential session. Leaves `[tool.mutmut]` in `pyproject.toml`, `conftest.py` at the repo root, and a `mutants/` dir behind until cleaned up.
-
-   If unspecified, ask: "Run this session in a new git worktree (parallel-safe, isolated) or in the current checkout (simpler, sequential-only)?" Wait for the answer.
-
-   **Docker Compose isolation when using a worktree.** Pass `-p <slug>` to every `docker compose` command (e.g. `-p inertia-mut-middleware`). Use the same slug for every command in the session.
+Before running any mutmut command, confirm the **target module**: the exact path of the library source file to mutate (e.g., `inertia/http.py`, `inertia/middleware.py`, `inertia/utils.py`). It must have a colocated test file under `inertia/tests/test_*.py` (e.g., `inertia/tests/test_middleware.py`); files under `inertia/tests/` themselves are out of scope. If the user did not provide it in the invoking prompt, **ask and wait** for an answer — do not guess.
 
 ## Golden Rules
 
@@ -33,7 +24,7 @@ Before running any mutmut command, confirm these two inputs. If the user did not
 
 ## Phase 0 — One-time bootstrap (skip if already done)
 
-mutmut needs a root `conftest.py` so Django is configured at pytest collection time. Create it once per checkout (or per worktree). Both files below are gitignored / transient in the worktree case.
+mutmut needs a root `conftest.py` so Django is configured at pytest collection time. Create it once per checkout. Both files below are gitignored / transient.
 
 **Create `conftest.py` at the repo root:**
 
@@ -73,16 +64,18 @@ pytest_add_cli_args_test_selection = [
     "inertia/tests/test_<target>.py",
 ]
 also_copy = ["conftest.py"]
+type_check_command = ["pyrefly", "check", "--output-format=json"]
 debug = false
 ```
 
 **Why each key:**
-- `paths_to_mutate = ["inertia"]` — the whole package must be copied to `mutants/` so intra-project imports (e.g. `http.py` importing `prop_classes.py`) still resolve under the mutated tree. Restrict mutation via the CLI argument in Phase 2, not by narrowing this.
+- `paths_to_mutate = ["inertia"]` — the whole package must be copied to `mutants/` so intra-project imports (e.g. `http.py` importing `prop_classes.py`) still resolve under the mutated tree, and so pyrefly can type-check it. Restrict mutation via the CLI argument in Phase 2, not by narrowing this.
 - `pytest_add_cli_args_test_selection` — narrows pytest collection to the one test file, avoiding unrelated sibling tests and the slower full-suite import.
 - `also_copy = ["conftest.py"]` — ships the root bootstrap into `mutants/` so Django is configured against the mutated tree. Required for any target whose tests hit Django machinery (middleware, ORM, signals, template rendering); harmless otherwise.
+- `type_check_command = ["pyrefly", "check", "--output-format=json"]` — pyrefly pre-rejects type-invalid mutants (e.g. an `arg_to_none` forwarding mutation on a non-optional parameter) before they reach pytest, marking them 🧙. mutmut parses the `--output-format=json` report to map each error back to its mutant. mutmut also copies `pyproject.toml` into `mutants/`, so the relative `project-includes = ["inertia"]` in `[tool.pyrefly]` resolves against the mutated tree — no extra `also_copy` is needed for the config.
 - `debug` — prints the pytest invocation on each run. Useful when diagnosing bootstrap failures.
 
-**Why `type_check_command` is intentionally absent.** mutmut transpiles every source file to wrap each function in a `_mutmut_trampoline` dispatcher. The repo's `[tool.mypy]` is `strict = true`, which rejects the trampoline (untyped calls, unused `# type: ignore`, `Any` returns) — verified empirically: a vanilla `mypy inertia` against the `mutants/` tree reports 747 errors. With `type_check_command = ["mypy", "inertia"]`, every mutant would be falsely marked 🧙 (caught by type check) and pytest would never actually run. If you want a pre-filter, configure a relaxed mypy invocation (e.g. `mypy --no-strict-optional --disable-error-code=no-untyped-call --disable-error-code=unused-ignore --disable-error-code=no-any-return inertia`) and verify it doesn't blanket-reject before relying on the count.
+**Blanket-reject guardrail.** mutmut wraps every function in a `_mutmut_trampoline` dispatcher. A `strict = true` mypy run used to reject that boilerplate wholesale (untyped calls, `Any` returns, unused `# type: ignore`), which would falsely mark *every* mutant 🧙 and skip pytest entirely — that is why this command was historically left out. The repo's `[tool.pyrefly]` relaxations (`check-unannotated-defs = false`, `infer-return-types = "checked"`, `permissive-ignores = true`) tolerate the trampoline, so pyrefly flags only the errors a mutation actually introduces. Sanity check: if the 🧙 count ever equals the total with zero 🎉 / 🙁, the type checker is blanket-rejecting — drop `type_check_command` and investigate before trusting the score.
 
 Only `pytest_add_cli_args_test_selection` changes between targets. The other keys stay.
 
@@ -110,7 +103,7 @@ Output legend (mutmut prints these emojis — they are tool output, not decorati
 | Symbol | Status | Meaning |
 |---|---|---|
 | 🎉 | killed | A test caught the mutation — good |
-| 🧙 | caught by type check | A `type_check_command` rejected the mutant before pytest ran (zero by default — see Phase 1) |
+| 🧙 | caught by type check | Pyrefly rejected the mutant before pytest ran |
 | 🙁 | survived | No test caught it — **this is where we work** |
 | 🫥 | no tests | No test covers the mutated code — hole in selection |
 | ⏰ | timeout | Mutant caused an infinite loop — usually a killed mutant |
@@ -188,10 +181,7 @@ If anything smells, write up findings and pause. Do not modify library source wi
 
 ## Phase 6 — Write tests
 
-**Only modify files under `inertia/tests/`.** Project rules apply to every new test:
-- Type-hint anything you add (`inertia/` ships PEP 561 typing).
-- If you touch a logger call, keep parameterized logging (`logger.info("msg %s", value)`); never pre-format with f-strings.
-- If you see `getLogger(__name__)` in code you read, change it to `getLogger("inertia_django_full_of_juice")` (per `.claude/rules/main-rules.md`).
+**Only modify files under `inertia/tests/`.** The project's code-style rules (type hints, parameterized logging, `getLogger` naming) apply to every new test — follow `.claude/rules/main-rules.md`.
 
 Typical moves:
 
@@ -220,7 +210,7 @@ Compare killed / survived counts vs the previous run. Iterate Phase 3 → Phase 
 
 ## Target score
 
-Effective mutation score = `(killed + caught_by_type_check) / total`. Without a `type_check_command`, this collapses to `killed / total`.
+Effective mutation score = `(killed + caught_by_type_check) / total`.
 
 | Score | Verdict |
 |---|---|
@@ -228,6 +218,8 @@ Effective mutation score = `(killed + caught_by_type_check) / total`. Without a 
 | **80%–90%** | **Target band for `inertia/` modules** |
 | 70%–80% | Acceptable if remaining survivors are logging-only |
 | < 70% | Ship more tests |
+
+**Reference run (pre-filter sanity check).** A single pass on `inertia/middleware.py` — 121 mutants → 66 🎉 killed + 33 🧙 type-caught + 22 🙁 survived, i.e. pyrefly pre-rejected ~27% before pytest. The survivors were not triaged in that pass; the run only confirms the type-check pre-filter is active and is *not* blanket-rejecting.
 
 ## When to stop killing mutants
 
@@ -244,8 +236,6 @@ Also stop and escalate if:
 - A surviving mutant in `inertia/http.py` / `inertia/middleware.py` exposes a v3 protocol divergence — brief the user before changing anything.
 
 ## Quick command reference
-
-> **Worktree sessions**: prepend `-p <unique-project-name>` to every `docker compose` command below (e.g. `docker compose -p inertia-mut-middleware run ...`). Reuse the exact same project name across all commands of a single session so state (volumes, DB, `integration-tests` container) is shared. In-place sessions can omit `-p`.
 
 ```bash
 # First-time / fresh run (scope testing to the target module via the CLI glob)
@@ -279,24 +269,11 @@ docker compose run --remove-orphans --rm integration-tests \
 
 ## After the session — project SDLC hygiene
 
-Before declaring the task done, follow `.claude/rules/main-rules.md`:
+Before declaring the task done, follow `.claude/rules/main-rules.md`.
 
-1. **Run the full library suite** to confirm no regression:
-   ```bash
-   docker compose run --remove-orphans --rm integration-tests
-   ```
-2. **Lint & format** (no need to re-run tests after):
-   ```bash
-   docker compose run --remove-orphans --rm lint-formatter
-   ```
-3. **CHANGELOG.md** — only update if `inertia/` *outside* `inertia/tests/` changed. A pure test-additions session does not touch the changelog.
-4. **`sample_project/E2E_TESTING.md`** — update only if the work changed an observable v3 surface (headers, page-object fields, middleware behavior, prop kinds).
-5. **Commit** with Conventional Commits, one concern per commit. A library fix and a sample-project tweak go in two separate commits even when discovered together.
-6. **Do not edit `pyproject.toml`'s `version`** by hand. The publish workflow runs `poetry version $TAG_NAME` from the tag.
+## Cleanup
 
-## Cleanup (in-place sessions only)
-
-In a worktree session you can just delete the worktree. In an in-place session, revert the transient state before committing:
+Revert the transient state before committing:
 
 ```bash
 docker compose run --remove-orphans --rm integration-tests bash -c 'rm -rf mutants mutants.sqlite'

@@ -26,9 +26,9 @@ requests = "^2.32.5"
 
 [tool.poetry.group.dev.dependencies]
 coverage = "~=7.13"
+pyrefly = "~=1.0"
 ruff = "^0.15.2"
-mypy = "^1.20.2"
-django-stubs = {extras = ["compatible-mypy"], version = "^6.0.3"}
+django-stubs = "~=6.0"
 types-requests = "^2.33.0.20260408"
 mutmut = "^3.5.0"
 
@@ -48,16 +48,23 @@ select = [
 ignore = ["E501"] # line too long, formatter will handle this
 unfixable = ["B", "SIM"]
 
-[tool.mypy]
-python_version = "3.14"
-plugins = ["mypy_django_plugin.main"]
-strict = true
-exclude = [
-    "inertia/test.*"
-]
+[tool.pyrefly.errors]
+bad-override-param-name = false
 
-[tool.django-stubs]
-django_settings_module = "inertia.tests.settings"
+[tool.pyrefly]
+python-version = "3.14"
+project-includes = ["inertia"]
+project-excludes = [
+    "**/migrations/**",
+    "**/__pycache__",
+    "**/*venv/**",
+    ".github/workflows/test_pypi_publish.py",
+    "inertia/test.py",
+    "inertia/tests/**",
+]
+check-unannotated-defs = false
+infer-return-types = "checked"
+permissive-ignores = true
 
 [tool.mutmut]
 paths_to_mutate = ["inertia"]
@@ -75,5 +82,6 @@ pytest_add_cli_args_test_selection = [
     "inertia/tests/test_typed_helpers.py",
 ]
 also_copy = ["conftest.py"]
+type_check_command = ["pyrefly", "check", "--output-format=json"]
 debug = false
 

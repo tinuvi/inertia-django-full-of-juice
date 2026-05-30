@@ -1,0 +1,22 @@
+{
+  "name": "inertia-django-full-of-juice-playwright",
+  "version": "1.0.0",
+  "private": true,
+  "description": "End-to-end tests for inertia-django-full-of-juice, driven through the dockerized sample project (SSR-off on :8000, SSR-on on :8001).",
+  "scripts": {
+    "test": "playwright test --project=without-ssr",
+    "test:ssr": "playwright test --project=with-ssr",
+    "test:all": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:report": "playwright show-report",
+    "install-browsers": "playwright install --with-deps"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

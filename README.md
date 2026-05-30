@@ -378,6 +378,46 @@ def update(request):
 
 Additionally, `InertiaMiddleware` automatically converts any redirect response whose `Location` contains a `#fragment` (e.g. `redirect('/foo#section')`) on an Inertia request into a `409 + X-Inertia-Redirect`, so the v3 client honors the fragment without any extra work on your part.
 
+### Validation errors & error bags
+
+The v3 protocol reserves an `errors` object on the page (`page.props.errors`). It defaults to `{}`, and the client treats a **non-empty** `errors` as "this request failed" — firing `onError` instead of `onSuccess`. This adapter always reserves that slot for you (it survives partial reloads, just like Laravel's `Inertia::always`), but — by design — it does **not** auto-populate it.
+
+This is intentional, not a missing feature. Laravel's adapter reads validation errors from the session on every request because the *Laravel framework* flashes them there (`back()->withErrors()`); Django has no equivalent convention, so forcing one would fight Django's idioms. We hand you a protocol-compliant wire and let you own the policy — plain forms, DRF serializers, generic CBVs, whatever you already use. (The official `inertia-django` adapter takes the same stance.)
+
+**Redirect-back-with-flashed-errors (the `useForm` / `router.post` path).** Flash the errors to the session on failure, redirect back, then re-share them on the next GET:
+
+```python
+from inertia import share
+from django.shortcuts import redirect
+
+POSTED_ERRORS = "_inertia_errors"
+
+def update(request):
+    form = MyForm(request.POST)
+    if not form.is_valid():
+        # first message per field — matches what the client's form.errors expects
+        request.session[POSTED_ERRORS] = {f: e[0] for f, e in form.errors.items()}
+        return redirect(request.META.get("HTTP_REFERER", "/settings"))
+    # ... handle valid form ...
+    return redirect("/settings")
+```
+
+```python
+# in your own middleware (or a base view / mixin), on the way into the view:
+if errors := request.session.pop(POSTED_ERRORS, None):
+    share(request, errors=errors)
+```
+
+`InertiaMiddleware` already upgrades `PUT`/`PATCH`/`DELETE` redirects to `303` for you, so the follow-up request is a `GET` that carries the flashed errors.
+
+For the simpler same-route case (POST and re-render on the same view), skip the session entirely and pass `errors` straight to `render`:
+
+```python
+return render(request, "Settings/Edit", {"errors": {f: e[0] for f, e in form.errors.items()}})
+```
+
+**Error bags are not handled automatically.** If you put two forms on one page and want Laravel-style scoping (`errors.createUser.email`), read the `X-Inertia-Error-Bag` request header yourself and nest the errors under its value — the client sends that header when a form sets the `errorBag` option, and reads errors back from `errors[<bag>]`. For the common single-form case you don't need any of this; a flat `{field: message}` map is enough.
+
 ### Validation responses for `useHttp`
 
 The v3 frontend ships a `useHttp` hook for non-Inertia XHR calls (think: small async actions that don't navigate). Unlike the Inertia visit flow, `useHttp` expects a `422` JSON response with the shape `{"message": "...", "errors": {field: msg}}` on validation failure. `errors_response()` builds exactly that.
@@ -393,7 +433,7 @@ def submit(request):
     # ... handle valid form ...
 ```
 
-For regular Inertia visits (form submissions through `useForm` / `router.post`), the convention is still the redirect-back-with-flashed-errors pattern — projects flash validation errors to the session and re-share them on the next GET via `share(request, errors=...)`. `errors_response()` is specifically for the `useHttp` hook.
+`errors_response()` is specifically for the `useHttp` hook. For regular Inertia visits (form submissions through `useForm` / `router.post`), use the redirect-back-with-flashed-errors pattern in [Validation errors & error bags](#validation-errors--error-bags) above instead.
 
 ### Json Encoding
 
@@ -449,6 +489,18 @@ class LogoutView(auth_views.LogoutView):
   * `requests` is configured as a dependency if you install the `[ssr]` extra,
     e.g. `inertia-django[ssr]` in your requirements.
 * Enable SSR via the `INERTIA_SSR_URL` and `INERTIA_SSR_ENABLED` settings.
+* Exclude specific routes from SSR with `INERTIA_SSR_EXCLUDE`, a list of regex
+  patterns matched (`re.search`) against `request.path`. A request whose path
+  matches any pattern skips the SSR render call and falls back to the
+  client-side shell — useful for authenticated, per-user pages where SSR adds
+  little value. Example: `INERTIA_SSR_EXCLUDE = [r'^/admin/', r'^/dashboard/']`.
+  Invalid regexes are reported by a Django system check (`inertia.E001`) at
+  startup rather than failing on the first request.
+  * **Porting from Laravel:** these are Python regexes matched with `re.search`
+    against `request.path`, which keeps its leading slash and is *not*
+    anchored — unlike Laravel, which matches a glob against the slash-trimmed
+    path and full URL. A Laravel `Inertia::withoutSsr('admin/*')` becomes
+    `INERTIA_SSR_EXCLUDE = [r'^/admin/']` here.
 
 #### Frontend
 
@@ -461,13 +513,34 @@ Inertia Django has a few different settings options that can be set from within 
 The default config is shown below
 
 ```python
-INERTIA_VERSION = '1.0' # defaults to '1.0'; bump this when shipping v3 to force a hard reload
+INERTIA_VERSION = '1.0' # defaults to '1.0'; bump this when shipping new assets to force a hard reload. May also be a zero-arg callable (see below).
 INERTIA_LAYOUT = 'layout.html' # required and has no default
 INERTIA_JSON_ENCODER = CustomJsonEncoder # defaults to inertia.utils.InertiaJsonEncoder
 INERTIA_SSR_URL = 'http://localhost:13714' # defaults to http://localhost:13714
 INERTIA_SSR_ENABLED = False # defaults to False
+INERTIA_SSR_EXCLUDE = [r'^/admin/'] # defaults to []; regex patterns matched (re.search) against request.path — matching paths skip SSR
 INERTIA_ENCRYPT_HISTORY = False # defaults to False
 ```
+
+### Asset versioning (`INERTIA_VERSION`)
+
+`INERTIA_VERSION` is the [asset version](https://inertiajs.com/asset-versioning) Inertia emits in every page object and checks against the client's `X-Inertia-Version` header. When the value changes, the next `GET` returns a `409 Conflict` with `X-Inertia-Location` so the browser does a full reload and picks up freshly-deployed assets.
+
+It can be a plain value or a zero-arg callable (resolved once per request, then cast to a string — `None` becomes `""`, which disables versioning). The callable form lets you derive the version from Django's own static-files pipeline so it auto-busts on every deploy:
+
+```python
+from django.contrib.staticfiles.storage import staticfiles_storage
+
+def inertia_version():
+    # Django 4.2+: an md5 digest over the staticfiles manifest that changes
+    # whenever a collected asset changes. Requires ManifestStaticFilesStorage
+    # and a `collectstatic` run; falls back otherwise.
+    return getattr(staticfiles_storage, "manifest_hash", None) or "1.0"
+
+INERTIA_VERSION = inertia_version
+```
+
+This mirrors Laravel, which hashes its Vite/Mix manifest. If you are not using `ManifestStaticFilesStorage`, keep the static string and bump it on deploy.
 
 ## Testing
 

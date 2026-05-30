@@ -1,6 +1,7 @@
 import logging
+import re
 from collections.abc import Callable
-from functools import wraps
+from functools import lru_cache, wraps
 from http import HTTPStatus
 from json import dumps as json_encode
 from typing import Any, Concatenate, ParamSpec
@@ -12,7 +13,7 @@ from django.template.loader import render_to_string
 from .helpers import deep_transform_callables
 from .infinite_scroll import InfiniteScrollProp
 from .prop_classes import DeferredProp, IgnoreOnFirstLoadProp, MergeableProp, OnceProp
-from .settings import settings
+from .settings import resolve_inertia_version, settings
 
 try:
     # Must be early-imported so tests can patch it with
@@ -33,6 +34,18 @@ INERTIA_TEMPLATE = "inertia.html"
 INERTIA_SSR_TEMPLATE = "inertia_ssr.html"
 
 ALWAYS_INCLUDED_KEYS: frozenset[str] = frozenset({"errors"})
+
+
+@lru_cache(maxsize=None)
+def _compiled_ssr_exclude(patterns: tuple[str, ...]) -> tuple[re.Pattern[str], ...]:
+    """Compile the ``INERTIA_SSR_EXCLUDE`` regexes once per distinct pattern tuple.
+
+    Mirrors Django's ``SecurityMiddleware``, which compiles
+    ``SECURE_REDIRECT_EXEMPT`` a single time rather than on every request.
+    Keying the cache on the pattern tuple means a settings change in tests
+    (or at runtime) transparently recompiles instead of going stale.
+    """
+    return tuple(re.compile(pattern) for pattern in patterns)
 
 
 class InertiaRequest(HttpRequest):
@@ -144,7 +157,7 @@ class BaseInertiaResponseMixin:
             "component": self.component,
             "props": self.build_props(),
             "url": self.request.get_full_path(),
-            "version": settings.INERTIA_VERSION,
+            "version": resolve_inertia_version(),
         }
 
         if encrypt_history_flag:
@@ -440,12 +453,39 @@ class BaseInertiaResponseMixin:
             using=None,
         )
 
+    def _is_ssr_excluded(self) -> bool:
+        """Return ``True`` when the request path opts out of server-side rendering.
+
+        Matches ``request.path`` against the ``INERTIA_SSR_EXCLUDE`` regex list
+        with :func:`re.search`, the same idiom Django itself uses for
+        ``SECURE_REDIRECT_EXEMPT`` in ``SecurityMiddleware``. This mirrors
+        Laravel's per-path SSR opt-out (``Inertia::withoutSsr`` / the gateway
+        ``ExcludesSsrPaths`` contract); we deliberately diverge from Laravel's
+        glob-against-full-URL-and-path matching to regex-against-``request.path``
+        so the surface feels native to Django.
+        """
+        raw_patterns = settings.INERTIA_SSR_EXCLUDE
+        if not raw_patterns:
+            return False
+        path = self.request.path
+        for pattern in _compiled_ssr_exclude(tuple(raw_patterns)):
+            if pattern.search(path):
+                _logger.debug(
+                    "first-load shell: skipping SSR for path=%r (matched INERTIA_SSR_EXCLUDE pattern %r)",
+                    path,
+                    pattern.pattern,
+                )
+                return True
+        return False
+
     def build_first_load_context_and_template(
         self, data: Any
     ) -> tuple[dict[str, Any], str]:
-        if settings.INERTIA_SSR_ENABLED:
+        if settings.INERTIA_SSR_ENABLED and not self._is_ssr_excluded():
             try:
-                response = requests.post(
+                # ``requests`` is a hard dependency; the module-level ``None`` fallback
+                # only guards the optional import, so this path runs only when present.
+                response = requests.post(  # pyrefly: ignore[missing-attribute]
                     f"{settings.INERTIA_SSR_URL}/render",
                     data=data,
                     headers={"Content-Type": "application/json"},
@@ -498,7 +538,10 @@ class InertiaResponse(BaseInertiaResponseMixin, HttpResponse):
         *args: Any,
         **kwargs: Any,
     ) -> None:
-        self.request = InertiaRequest(request)
+        # django-stubs types ``HttpRequest.__new__`` with no parameters, so pyrefly
+        # mis-resolves the ``InertiaRequest(request)`` constructor (bad-argument-count
+        # / bad-assignment). The runtime ``__init__`` accepts the request as intended.
+        self.request = InertiaRequest(request)  # pyrefly: ignore
         self.component = component
         self.props = props or {}
         self.template_data = template_data or {}

@@ -1,0 +1,79 @@
+name: Playwright E2E
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'inertia/**'
+      - 'sample_project/**'
+      - 'playwright_e2e/**'
+      - '.github/workflows/playwright.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Playwright tests (without-ssr + with-ssr)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      COMPOSE_FILE: sample_project/docker-compose.yml
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: playwright_e2e/package-lock.json
+
+      # Brings up both Django variants (:8000 SSR-off, :8001 SSR-on) plus the
+      # Node SSR sidecar, waiting until the web services report healthy.
+      - name: Bring up the sample stack
+        run: docker compose -f "$COMPOSE_FILE" up --build --detach --wait --wait-timeout 360
+
+      - name: Install Playwright dependencies
+        working-directory: playwright_e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run Playwright tests (without-ssr)
+        working-directory: playwright_e2e
+        env:
+          WITHOUT_SSR_URL: http://localhost:8000
+        run: npm run test
+
+      - name: Run Playwright tests (with-ssr)
+        working-directory: playwright_e2e
+        env:
+          WITH_SSR_URL: http://localhost:8001
+        run: npm run test:ssr
+
+      - name: Dump compose logs on failure
+        if: failure()
+        run: docker compose -f "$COMPOSE_FILE" logs --no-color
+
+      - name: Tear down the sample stack
+        if: always()
+        run: docker compose -f "$COMPOSE_FILE" down --volumes --remove-orphans
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: playwright_e2e/playwright-report
+          retention-days: 14
+
+      - name: Upload traces & screenshots
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-test-results
+          path: playwright_e2e/test-results
+          retention-days: 14

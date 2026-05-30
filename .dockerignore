@@ -1,0 +1,34 @@
+# Build context is the repo root for both the library test image (Dockerfile)
+# and the sample images (sample_project/Dockerfile[.ssr]). Keep the context lean
+# without dropping anything those builds need (inertia/, scripts/, manage.py,
+# conftest.py, pyproject.toml, poetry.lock).
+
+.git
+.idea
+.vscode
+
+# Python caches / artifacts
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+.coverage
+tests-reports
+mutants
+
+# Virtualenvs — rebuilt inside the image
+**/.venv
+
+# Node — reinstalled inside the image
+**/node_modules
+
+# Vite build output — regenerated inside the image
+sample_project/frontend/dist
+
+# Local SQLite — recreated by migrate
+**/db.sqlite3
+
+# E2E harness (not needed in any image build context)
+playwright_e2e
+.playwright-mcp

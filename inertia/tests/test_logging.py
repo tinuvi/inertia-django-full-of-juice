@@ -1,14 +1,15 @@
 """Tests for the library's DEBUG logging surface.
 
 These verify that the protocol decision points emit deterministic log
-records on the ``inertia_django_full_of_juice`` logger. The E2E
-checklist in ``sample_project/E2E_TESTING.md`` correlates these log
-lines with browser actions, so the assertions here pin the
-human-readable phrasing as well as the conditions under which each
-record fires.
+records on the ``inertia_django_full_of_juice`` logger. The assertions
+here pin the human-readable phrasing as well as the conditions under
+which each record fires, treating the log lines as a stable contract
+for anyone correlating library behavior against a request log.
 """
 
 import logging
+
+from django.test import override_settings
 
 from inertia.http import (
     clear_history,
@@ -412,3 +413,23 @@ class MiddlewareLoggingTestCase(InertiaTestCase):
         ]
         self.assertTrue(emit)
         self.assertIn("client='some-nonsense'", emit[-1])
+
+
+@override_settings(
+    INERTIA_SSR_ENABLED=True,
+    INERTIA_SSR_URL="ssr-url",
+    INERTIA_SSR_EXCLUDE=[r"^/props/"],
+)
+class SSRExclusionLoggingTestCase(InertiaTestCase):
+    def test_excluded_path_logs_skip_record(self):
+        with self.assertLogs(_LOGGER, level="DEBUG") as cm:
+            self.client.get("/props/")
+
+        emit = [
+            m
+            for m in _messages(cm.records)
+            if m.startswith("first-load shell: skipping SSR for path=")
+        ]
+        self.assertTrue(emit, msg=_messages(cm.records))
+        self.assertIn("/props/", emit[-1])
+        self.assertIn("^/props/", emit[-1])

@@ -577,3 +577,13 @@ class OncePropsTestCase(InertiaTestCase):
     def test_dual_input_raises_value_error(self):
         with self.assertRaises(ValueError):
             once(lambda: ["A"], expires_in=60, expires_at=1234567890123)
+
+
+class StringCallableNamePropsTestCase(InertiaTestCase):
+    def test_string_values_named_like_callables_are_returned_verbatim(self):
+        # A prop whose value is a plain string must be returned as-is, even when
+        # it matches a builtin callable name. In Python a str is not callable,
+        # so deep_transform_callables leaves it untouched. Mirrors Laravel
+        # ResponseTest::test_string_function_names_are_not_invoked_as_callables.
+        self.inertia.get("/string-callable-props/")
+        self.assertIncludesProps({"first": "date", "second": "trim"})

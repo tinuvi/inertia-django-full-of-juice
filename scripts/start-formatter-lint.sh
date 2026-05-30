@@ -7,4 +7,4 @@ set -e
 
 ruff check --fix --exit-non-zero-on-fix
 ruff format --exit-non-zero-on-fix
-mypy inertia
+pyrefly check

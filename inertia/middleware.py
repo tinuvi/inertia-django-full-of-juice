@@ -6,7 +6,7 @@ from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import get_token
 
 from .http import inertia_redirect, location
-from .settings import settings
+from .settings import resolve_inertia_version
 
 FRAGMENT_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
@@ -53,12 +53,12 @@ class InertiaMiddleware:
             )
             response.status_code = 303
 
-        if self.is_stale(request):
+        if self.is_stale_inertia_get(request):
             client_version = request.headers.get("X-Inertia-Version", "")
             _logger.debug(
                 "middleware: stale version (client=%r, server=%r) → 409 X-Inertia-Location for hard reload",
                 client_version,
-                settings.INERTIA_VERSION,
+                resolve_inertia_version(),
             )
             return self.force_refresh(request)
 
@@ -86,9 +86,9 @@ class InertiaMiddleware:
         return "#" in location_header
 
     def is_stale(self, request: HttpRequest) -> bool:
+        server_version = resolve_inertia_version()
         return (
-            request.headers.get("X-Inertia-Version", settings.INERTIA_VERSION)
-            != settings.INERTIA_VERSION
+            request.headers.get("X-Inertia-Version", server_version) != server_version
         )
 
     def is_stale_inertia_get(self, request: HttpRequest) -> bool:

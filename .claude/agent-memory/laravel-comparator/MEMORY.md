@@ -11,3 +11,4 @@ between `inertiajs/inertia-laravel` (branch `3.x`) and this Django adapter.
 - [sharedProps page-object field](shared_props_metadata.md) — Laravel emits `sharedProps` (Inertia::share key list), default ON; Django MISSING entirely.
 - [Test coverage map](test_coverage_map.md) — Laravel 3.x test files → Django tests; gaps + not-applicable patterns from the 2026-05-30 analysis.
 - [Asset version handling](asset_version_handling.md) — Laravel getVersion() (string) cast at ResponseFactory:150-154 + stale check Middleware:148; Django raw value = DIVERGENT bug on numeric INERTIA_VERSION.
+- [Validation errors / error bags](validation_errors.md) — Laravel Middleware:68-73,223-247 auto-injects errors prop from session ViewErrorBag + X-Inertia-Error-Bag scoping; Django reserves errors key (always-included) but MISSING auto session injection (intentional).

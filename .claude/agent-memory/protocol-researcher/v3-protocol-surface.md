@@ -30,6 +30,14 @@ metadata:
 - `Vary` = X-Inertia.
 - Precognition / Precognition-Success — Precognition responses (204 on success).
 
+## Asset versioning (X-Inertia-Version + 409)
+- Page `version` type: spec doc table says `string|number`; client `Page.version: string | null` (`packages/core/src/types.ts` ~L235). On the wire (JSON/data-page) the server serializes it; client treats it as the opaque version token.
+- Client sends header only when truthy: `if (page.version) { headers['X-Inertia-Version'] = page.version }` (`packages/core/src/request.ts` ~L168). Null/empty/absent version => header NOT sent. First full-page load is a plain browser request with no Inertia headers (spec L3); header starts appearing once a version was given from back-end (tests/links.spec.ts).
+- Server compares header to its current version; equal => continue; different => "immediately returns a 409 Conflict response, and includes the URL in a X-Inertia-Location header." Spec: "409 Conflict responses are only sent for GET requests, and not for POST/PUT/PATCH/DELETE requests... they will be sent in the event that a GET redirect occurs after one of these requests." (v3/advanced/asset-versioning.mdx L381-383; mirrored in the-protocol.mdx).
+- Client 409 reaction: `isLocationVisit() = hasStatus(409) && hasHeader('x-inertia-location')` then `locationVisit(url)`: if same URL sans hash `window.location.reload()` else `window.location.href = url.href` (`packages/core/src/response.ts` ~L194-214). No client-side method check — the GET-only gate is purely a server obligation.
+- Spec is SILENT on how server treats a MISSING/empty X-Inertia-Version. Laravel ref treats missing header as `''` and only 409s when `$request->header('X-Inertia-Version','') !== version`; so a versionless request vs a versioned server WOULD mismatch in Laravel. Django lib treating missing-as-match is a divergence from Laravel (spec itself does not dictate this).
+- Reflash: "If 'flash' session data exists when a 409 Conflict response occurs, Inertia's server-side framework adapters will automatically reflash this data." (asset-versioning.mdx L383).
+
 ## Page object fields
 component, props (always incl errors:{}), url, version — always.
 Only-when-set: encryptHistory(true), clearHistory(true), preserveFragment(true),

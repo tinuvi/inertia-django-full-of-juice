@@ -378,6 +378,46 @@ def update(request):
 
 Additionally, `InertiaMiddleware` automatically converts any redirect response whose `Location` contains a `#fragment` (e.g. `redirect('/foo#section')`) on an Inertia request into a `409 + X-Inertia-Redirect`, so the v3 client honors the fragment without any extra work on your part.
 
+### Validation errors & error bags
+
+The v3 protocol reserves an `errors` object on the page (`page.props.errors`). It defaults to `{}`, and the client treats a **non-empty** `errors` as "this request failed" — firing `onError` instead of `onSuccess`. This adapter always reserves that slot for you (it survives partial reloads, just like Laravel's `Inertia::always`), but — by design — it does **not** auto-populate it.
+
+This is intentional, not a missing feature. Laravel's adapter reads validation errors from the session on every request because the *Laravel framework* flashes them there (`back()->withErrors()`); Django has no equivalent convention, so forcing one would fight Django's idioms. We hand you a protocol-compliant wire and let you own the policy — plain forms, DRF serializers, generic CBVs, whatever you already use. (The official `inertia-django` adapter takes the same stance.)
+
+**Redirect-back-with-flashed-errors (the `useForm` / `router.post` path).** Flash the errors to the session on failure, redirect back, then re-share them on the next GET:
+
+```python
+from inertia import share
+from django.shortcuts import redirect
+
+POSTED_ERRORS = "_inertia_errors"
+
+def update(request):
+    form = MyForm(request.POST)
+    if not form.is_valid():
+        # first message per field — matches what the client's form.errors expects
+        request.session[POSTED_ERRORS] = {f: e[0] for f, e in form.errors.items()}
+        return redirect(request.META.get("HTTP_REFERER", "/settings"))
+    # ... handle valid form ...
+    return redirect("/settings")
+```
+
+```python
+# in your own middleware (or a base view / mixin), on the way into the view:
+if errors := request.session.pop(POSTED_ERRORS, None):
+    share(request, errors=errors)
+```
+
+`InertiaMiddleware` already upgrades `PUT`/`PATCH`/`DELETE` redirects to `303` for you, so the follow-up request is a `GET` that carries the flashed errors.
+
+For the simpler same-route case (POST and re-render on the same view), skip the session entirely and pass `errors` straight to `render`:
+
+```python
+return render(request, "Settings/Edit", {"errors": {f: e[0] for f, e in form.errors.items()}})
+```
+
+**Error bags are not handled automatically.** If you put two forms on one page and want Laravel-style scoping (`errors.createUser.email`), read the `X-Inertia-Error-Bag` request header yourself and nest the errors under its value — the client sends that header when a form sets the `errorBag` option, and reads errors back from `errors[<bag>]`. For the common single-form case you don't need any of this; a flat `{field: message}` map is enough.
+
 ### Validation responses for `useHttp`
 
 The v3 frontend ships a `useHttp` hook for non-Inertia XHR calls (think: small async actions that don't navigate). Unlike the Inertia visit flow, `useHttp` expects a `422` JSON response with the shape `{"message": "...", "errors": {field: msg}}` on validation failure. `errors_response()` builds exactly that.
@@ -393,7 +433,7 @@ def submit(request):
     # ... handle valid form ...
 ```
 
-For regular Inertia visits (form submissions through `useForm` / `router.post`), the convention is still the redirect-back-with-flashed-errors pattern — projects flash validation errors to the session and re-share them on the next GET via `share(request, errors=...)`. `errors_response()` is specifically for the `useHttp` hook.
+`errors_response()` is specifically for the `useHttp` hook. For regular Inertia visits (form submissions through `useForm` / `router.post`), use the redirect-back-with-flashed-errors pattern in [Validation errors & error bags](#validation-errors--error-bags) above instead.
 
 ### Json Encoding
 

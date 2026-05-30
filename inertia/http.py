@@ -13,7 +13,7 @@ from django.template.loader import render_to_string
 from .helpers import deep_transform_callables
 from .infinite_scroll import InfiniteScrollProp
 from .prop_classes import DeferredProp, IgnoreOnFirstLoadProp, MergeableProp, OnceProp
-from .settings import settings
+from .settings import resolve_inertia_version, settings
 
 try:
     # Must be early-imported so tests can patch it with
@@ -157,7 +157,7 @@ class BaseInertiaResponseMixin:
             "component": self.component,
             "props": self.build_props(),
             "url": self.request.get_full_path(),
-            "version": settings.INERTIA_VERSION,
+            "version": resolve_inertia_version(),
         }
 
         if encrypt_history_flag:

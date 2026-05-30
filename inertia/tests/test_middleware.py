@@ -2,7 +2,7 @@ from django.contrib.messages import get_messages
 from django.contrib.messages.middleware import MessageMiddleware
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
-from django.test import RequestFactory
+from django.test import RequestFactory, override_settings
 
 from inertia.http import inertia_redirect
 from inertia.middleware import InertiaMiddleware
@@ -77,6 +77,55 @@ class MiddlewareTestCase(InertiaTestCase):
         self.assertEqual(response.status_code, 409)
         self.assertIn("X-Inertia-Location", response.headers)
         self.assertEqual("http://foobar.com/", response.headers["X-Inertia-Location"])
+
+
+class VersionResolutionStalenessTestCase(InertiaTestCase):
+    @override_settings(INERTIA_VERSION=lambda: "deploy-hash")
+    def test_callable_version_matching_header_is_fresh(self):
+        response = self.inertia.get(
+            "/empty/",
+            HTTP_X_INERTIA_VERSION="deploy-hash",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.page()["version"], "deploy-hash")
+
+    @override_settings(INERTIA_VERSION=lambda: "deploy-hash")
+    def test_callable_version_mismatched_header_forces_refresh(self):
+        response = self.inertia.get(
+            "/empty/",
+            HTTP_X_INERTIA_VERSION="old-hash",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            response.headers["X-Inertia-Location"], "http://testserver/empty/"
+        )
+
+    @override_settings(INERTIA_VERSION=42)
+    def test_non_string_version_does_not_loop_against_string_header(self):
+        # Regression: the X-Inertia-Version header is always a string, so an int
+        # setting used to compare unequal to the matching client value (str "42"
+        # != int 42), forcing a 409 hard reload on every GET. The str cast in
+        # resolve_inertia_version makes the round-trip fresh again.
+        response = self.inertia.get(
+            "/empty/",
+            HTTP_X_INERTIA_VERSION="42",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.page()["version"], "42")
+        self.assertIsInstance(self.page()["version"], str)
+
+    @override_settings(INERTIA_VERSION=None)
+    def test_disabled_version_missing_header_is_fresh(self):
+        # version=None resolves to "", which the v3 client treats as "no
+        # versioning" and never echoes back. A header-less GET must stay fresh.
+        response = self.inertia.get("/empty/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.page()["version"], "")
+        self.assertNotIn("X-Inertia-Location", response.headers)
 
 
 class FragmentRedirectTestCase(InertiaTestCase):

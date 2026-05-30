@@ -513,7 +513,7 @@ Inertia Django has a few different settings options that can be set from within 
 The default config is shown below
 
 ```python
-INERTIA_VERSION = '1.0' # defaults to '1.0'; bump this when shipping v3 to force a hard reload
+INERTIA_VERSION = '1.0' # defaults to '1.0'; bump this when shipping new assets to force a hard reload. May also be a zero-arg callable (see below).
 INERTIA_LAYOUT = 'layout.html' # required and has no default
 INERTIA_JSON_ENCODER = CustomJsonEncoder # defaults to inertia.utils.InertiaJsonEncoder
 INERTIA_SSR_URL = 'http://localhost:13714' # defaults to http://localhost:13714
@@ -521,6 +521,26 @@ INERTIA_SSR_ENABLED = False # defaults to False
 INERTIA_SSR_EXCLUDE = [r'^/admin/'] # defaults to []; regex patterns matched (re.search) against request.path — matching paths skip SSR
 INERTIA_ENCRYPT_HISTORY = False # defaults to False
 ```
+
+### Asset versioning (`INERTIA_VERSION`)
+
+`INERTIA_VERSION` is the [asset version](https://inertiajs.com/asset-versioning) Inertia emits in every page object and checks against the client's `X-Inertia-Version` header. When the value changes, the next `GET` returns a `409 Conflict` with `X-Inertia-Location` so the browser does a full reload and picks up freshly-deployed assets.
+
+It can be a plain value or a zero-arg callable (resolved once per request, then cast to a string — `None` becomes `""`, which disables versioning). The callable form lets you derive the version from Django's own static-files pipeline so it auto-busts on every deploy:
+
+```python
+from django.contrib.staticfiles.storage import staticfiles_storage
+
+def inertia_version():
+    # Django 4.2+: an md5 digest over the staticfiles manifest that changes
+    # whenever a collected asset changes. Requires ManifestStaticFilesStorage
+    # and a `collectstatic` run; falls back otherwise.
+    return getattr(staticfiles_storage, "manifest_hash", None) or "1.0"
+
+INERTIA_VERSION = inertia_version
+```
+
+This mirrors Laravel, which hashes its Vite/Mix manifest. If you are not using `ManifestStaticFilesStorage`, keep the static string and bump it on deploy.
 
 ## Testing
 

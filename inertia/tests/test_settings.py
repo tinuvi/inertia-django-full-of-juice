@@ -1,6 +1,7 @@
 from django.test import override_settings
 
 from inertia.apps import check_ssr_exclude_patterns
+from inertia.settings import resolve_inertia_version
 from inertia.settings import settings as inertia_settings
 from inertia.test import InertiaTestCase
 
@@ -47,6 +48,41 @@ class SSRExcludeCheckTestCase(InertiaTestCase):
         response = self.inertia.get("/empty/", HTTP_X_INERTIA_VERSION="1.0")
 
         self.assertEqual(response.status_code, 200)
+
+
+class ResolveInertiaVersionTestCase(InertiaTestCase):
+    def test_default_is_the_string_one_dot_zero(self):
+        self.assertEqual(resolve_inertia_version(), "1.0")
+
+    @override_settings(INERTIA_VERSION="abc123")
+    def test_plain_string_is_returned_as_is(self):
+        self.assertEqual(resolve_inertia_version(), "abc123")
+
+    @override_settings(INERTIA_VERSION=42)
+    def test_non_string_value_is_cast_to_string(self):
+        # Mirrors Laravel's `getVersion(): string` `(string) $version` cast.
+        # Without it a non-string setting both leaks a non-string into the page
+        # JSON and makes every GET stale (str header != int setting) → 409 loop.
+        self.assertEqual(resolve_inertia_version(), "42")
+
+    @override_settings(INERTIA_VERSION=lambda: "from-callable")
+    def test_callable_is_invoked(self):
+        self.assertEqual(resolve_inertia_version(), "from-callable")
+
+    @override_settings(INERTIA_VERSION=lambda: 7)
+    def test_callable_result_is_cast_to_string(self):
+        self.assertEqual(resolve_inertia_version(), "7")
+
+    @override_settings(INERTIA_VERSION=None)
+    def test_none_resolves_to_empty_string(self):
+        # Like Laravel's `(string) null === ''`: an unset version disables asset
+        # versioning. The v3 client omits X-Inertia-Version when page.version is
+        # falsy, so the empty string round-trips as "not stale".
+        self.assertEqual(resolve_inertia_version(), "")
+
+    @override_settings(INERTIA_VERSION=lambda: None)
+    def test_callable_returning_none_resolves_to_empty_string(self):
+        self.assertEqual(resolve_inertia_version(), "")
 
     def test_layout(self):
         response = self.client.get("/empty/")

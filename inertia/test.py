@@ -4,7 +4,7 @@ from unittest.mock import patch
 from django.template.loader import render_to_string as base_render_to_string
 from django.test import Client, TestCase
 
-from inertia.settings import settings
+from inertia.settings import resolve_inertia_version
 
 
 class ClientWithLastResponse:
@@ -116,7 +116,7 @@ def inertia_page(
         "component": component,
         "props": props,
         "url": f"/{url}/",
-        "version": settings.INERTIA_VERSION,
+        "version": resolve_inertia_version(),
     }
 
     if encrypt_history:

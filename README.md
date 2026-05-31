@@ -5,6 +5,47 @@
 
 This adapter supports the Inertia.js v3 protocol, including once props, prepend / deep-merge variants, `matchPropsOn`, infinite scroll, fragment preservation across redirects, and the `useHttp` validation-response shape.
 
+## ⚡ v3 protocol feature matrix
+
+Everything this adapter speaks, with the **recommended approach** and the **E2E test that proves it** for each — every supported row links to a copy-pasteable example further down.
+
+**Status:** ✅ built-in helper / setting · ⚙️ automatic (handled by `InertiaMiddleware`, zero code) · ⚠️ supported, but you wire it (by design — stays out of Django's way) · ❌ not built in.
+**E2E proof:** the Playwright spec that exercises the feature in a real browser. 🟡 = exercised indirectly (not asserted head-on) · — = no dedicated spec yet (unit-tested, harness, or planned).
+
+| Protocol feature | Status | Recommended approach | Docs | E2E proof |
+| --- | :---: | --- | --- | --- |
+| 🧩 Page responses | ✅ | `@inertia('Event/Index')` decorator · or `render()` / `InertiaResponse` | [Responses](#responses) | [`home`](playwright_e2e/tests/home.spec.ts) |
+| 🤝 Shared data (every component) | ✅ | `share(request, user=…)` in middleware | [Shared Data](#shared-data) | [`home`](playwright_e2e/tests/home.spec.ts) |
+| 📦 Model / QuerySet serialization | ✅ | `InertiaJsonEncoder` (default) · `InertiaMeta.fields` | [Prop Serialization](#prop-serialization) | — *(unit)* |
+| 🪶 Optional props (partial-reload only) | ✅ | `optional(lambda: …)` | [Optional Props](#optional-props) | [`deferred-props`](playwright_e2e/tests/deferred-props.spec.ts) · [`partial-reload`](playwright_e2e/tests/partial-reload.spec.ts) |
+| ⏳ Deferred props | ✅ | `defer(lambda: …)` | [Deferred Props](#deferred-props) | [`deferred-props`](playwright_e2e/tests/deferred-props.spec.ts) |
+| 🧵 Deferred groups (parallel fetch) | ✅ | `defer(…, group='stats')` | [Grouping requests](#grouping-requests) | 🟡 [`partial-reload`](playwright_e2e/tests/partial-reload.spec.ts) |
+| ➕ Merge props (append) | ✅ | `merge(…)` | [Merge Props](#merge-props) | [`merge`](playwright_e2e/tests/merge.spec.ts) |
+| 🔝 Prepend props | ✅ | `prepend(…)` | [Prepend Props](#prepend-props) | [`merge`](playwright_e2e/tests/merge.spec.ts) |
+| 🌳 Deep-merge props | ✅ | `deep_merge(…)` | [Deep Merge Props](#deep-merge-props) | [`merge`](playwright_e2e/tests/merge.spec.ts) |
+| 🎯 Match-on (dedup merged lists) | ✅ | `merge(…, match_on=['id'])` | [Match props on](#match-props-on) | [`merge`](playwright_e2e/tests/merge.spec.ts) |
+| 🗃️ Once props (client-cached) | ✅ | `once(lambda: …, expires_in=…)` | [Once Props](#once-props) | — *(spec planned)* |
+| ♾️ Infinite scroll | ✅ | `infinite_scroll(prop, request, …)` | [Infinite Scroll](#infinite-scroll) | [`infinite-scroll`](playwright_e2e/tests/infinite-scroll.spec.ts) |
+| 🧷 Preserve fragment across redirects | ✅ ⚙️ | `preserve_fragment(request)` · auto when `Location` has `#` | [Preserving fragments](#preserving-fragments-across-redirects) | [`redirects`](playwright_e2e/tests/redirects.spec.ts) |
+| ↪️ External `window.location` visit | ✅ | `location('https://…')` → `409` + `X-Inertia-Location` | [External Redirects](#external-redirects) | [`redirects`](playwright_e2e/tests/redirects.spec.ts) |
+| 🔀 PRG → `303` · stale asset → `409` · fragment → `409` | ⚙️ | automatic via `InertiaMiddleware` | [Backend setup](#backend) | [`method-conversion`](playwright_e2e/tests/method-conversion.spec.ts) · [`redirects`](playwright_e2e/tests/redirects.spec.ts) |
+| 🏷️ Asset versioning (auto hard-reload) | ✅ | `INERTIA_VERSION` = string **or** callable | [Asset versioning](#asset-versioning-inertia_version) | [`asset-version`](playwright_e2e/tests/asset-version.spec.ts) |
+| 🔐 History encryption | ✅ | `INERTIA_ENCRYPT_HISTORY` · `encrypt_history(request)` | [History Encryption](#history-encryption) | [`history`](playwright_e2e/tests/history.spec.ts) |
+| 🧹 Clear history (e.g. on logout) | ✅ | `clear_history(request)` | [History Encryption](#history-encryption) | [`history`](playwright_e2e/tests/history.spec.ts) |
+| 🖥️ Server-side rendering (SSR) | ✅ | `INERTIA_SSR_ENABLED = True` | [SSR](#ssr) | [`ssr-exclusion`](playwright_e2e/tests-ssr/ssr-exclusion.spec.ts) |
+| 🚫 Per-route SSR opt-out | ✅ | `INERTIA_SSR_EXCLUDE = [r'^/admin/']` | [SSR](#ssr) | [`ssr-exclusion`](playwright_e2e/tests-ssr/ssr-exclusion.spec.ts) |
+| 🛡️ CSRF cookie/header alignment | ⚠️ | align names once (client `setClient` **or** Django settings) | [CSRF](#csrf) | 🟡 [`form-validation`](playwright_e2e/tests/form-validation.spec.ts) |
+| 🧾 Validation errors (Inertia visits) | ⚠️ | redirect-back + `share(request, errors=…)` | [Validation errors & error bags](#validation-errors--error-bags) | [`form-validation`](playwright_e2e/tests/form-validation.spec.ts) |
+| 🧰 Error bags (multi-form scoping) | ⚠️ | read `X-Inertia-Error-Bag`, nest errors under it | [Validation errors & error bags](#validation-errors--error-bags) | — |
+| 🌐 `useHttp` validation (`422` shape) | ✅ | `errors_response(errors, message=…)` | [useHttp responses](#validation-responses-for-usehttp) | [`errors-response`](playwright_e2e/tests/errors-response.spec.ts) |
+| 🧪 Test assertions | ✅ | `InertiaTestCase` | [Testing](#testing) | — *(harness)* |
+| ⚡ Precognition (live form validation) | ❌ | not built in | [Inertia validation](https://inertiajs.com/validation) | — |
+| 🗂️ `sharedProps` page field | ❌ | n/a — client-tolerant | [v3 protocol](https://inertiajs.com/the-protocol) | — |
+| 🛟 `rescuedProps` / `defer(rescue=True)` | ❌ | guard exceptions in the resolver yourself | [Deferred props](https://inertiajs.com/deferred-props) | — |
+| 💬 `flash` page field | ❌ | use Django `messages` | [`contrib.messages`](https://docs.djangoproject.com/en/stable/ref/contrib/messages/) | — |
+
+> ℹ️ The ❌ rows are genuinely absent today; the page-object omissions (`sharedProps`, `rescuedProps`, `flash`) are **client-tolerant** — their absence won't break an Inertia visit. Validation errors and error bags **are** supported — you just wire them yourself (the ⚠️ rows), by design, to stay out of Django's way. On the 🟡/— coverage: deferred *grouping*, the stale-asset `409` hard-reload, and CSRF naming are reached through the linked (or POST) specs but not asserted head-on, and **Once props** has no dedicated browser spec yet (it's unit-tested and wired into the sample's Lazy page). See [Validation errors & error bags](#validation-errors--error-bags).
+
 ## Installation
 
 ### Backend

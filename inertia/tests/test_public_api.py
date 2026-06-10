@@ -14,8 +14,8 @@ import inertia
 from inertia import is_inertia
 
 DOCUMENTED_EXPORTS = [
+    "ErrorsInput",
     "InertiaResponse",
-    "back",
     "clear_history",
     "deep_merge",
     "defer",
@@ -36,8 +36,10 @@ DOCUMENTED_EXPORTS = [
     "precognition",
     "prepend",
     "preserve_fragment",
+    "redirect_back",
     "render",
     "share",
+    "validate_only_keys",
 ]
 
 
@@ -60,3 +62,26 @@ class IsInertiaHelperTestCase(SimpleTestCase):
 
         self.assertTrue(is_inertia(factory.get("/", HTTP_X_INERTIA="true")))
         self.assertFalse(is_inertia(factory.get("/")))
+
+    def test_inertia_request_method_delegates_to_the_helper(self) -> None:
+        from inertia.http import InertiaRequest
+
+        factory = RequestFactory()
+
+        self.assertTrue(
+            InertiaRequest(factory.get("/", HTTP_X_INERTIA="true")).is_inertia()
+        )
+        self.assertFalse(InertiaRequest(factory.get("/")).is_inertia())
+
+    def test_middleware_method_delegates_to_the_helper(self) -> None:
+        from django.http import HttpResponse
+
+        from inertia.middleware import InertiaMiddleware
+
+        factory = RequestFactory()
+        middleware = InertiaMiddleware(lambda request: HttpResponse())
+
+        self.assertTrue(
+            middleware.is_inertia_request(factory.get("/", HTTP_X_INERTIA="true"))
+        )
+        self.assertFalse(middleware.is_inertia_request(factory.get("/")))

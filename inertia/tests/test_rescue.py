@@ -71,6 +71,38 @@ class RescuedDeferredPropsTestCase(InertiaTestCase):
         self.assertEqual(page["props"]["teams"], ["Bulls"])
         self.assertEqual(page["rescuedProps"], ["stats"])
 
+    def test_rescued_props_drop_their_merge_metadata(self) -> None:
+        # Mirrors Laravel's PropsResolver::resolveProps (3.x): the rescued
+        # ``continue`` precedes collectMetadata, so a rescued mergeable prop
+        # never advertises mergeProps for a value that was dropped — while
+        # the healthy mergeable sibling keeps its entry.
+        response = self.partial("/defer-rescue-merge/", "stats,teams")
+
+        page = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(page["rescuedProps"], ["stats"])
+        self.assertEqual(page["mergeProps"], ["teams"])
+        self.assertNotIn("stats", page["props"])
+        self.assertEqual(page["props"]["teams"], ["Bulls"])
+
+    def test_rescue_does_not_mutate_the_class_level_default(self) -> None:
+        # ``_rescued_props`` has a shared class-level default; build_props
+        # must REASSIGN (never append in place) so one response's rescues
+        # can't leak into the next.
+        from inertia.http import BaseInertiaResponseMixin
+
+        self.partial("/defer-rescue/", "stats")
+
+        self.assertEqual(BaseInertiaResponseMixin._rescued_props, [])
+
+    def test_class_level_default_means_no_attribute_error_before_build_props(
+        self,
+    ) -> None:
+        from inertia.http import BaseInertiaResponseMixin
+
+        self.assertEqual(BaseInertiaResponseMixin._rescued_props, [])
+        self.assertEqual(BaseInertiaResponseMixin()._rescued_props, [])
+
 
 class DeferRescueSignatureTestCase(InertiaTestCase):
     def test_defer_defaults_to_no_rescue(self) -> None:

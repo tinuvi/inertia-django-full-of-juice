@@ -11,6 +11,7 @@ from .http import (
     INERTIA_SESSION_FLASH,
     INERTIA_SESSION_PRESERVE_FRAGMENT,
     inertia_redirect,
+    is_inertia,
     location,
 )
 from .settings import resolve_inertia_version
@@ -81,7 +82,7 @@ class InertiaMiddleware:
         ]
 
     def is_inertia_request(self, request: HttpRequest) -> bool:
-        return "X-Inertia" in request.headers
+        return is_inertia(request)
 
     def is_redirect_request(self, response: HttpResponse) -> bool:
         return response.status_code in [301, 302]
@@ -119,9 +120,12 @@ class InertiaMiddleware:
         The stale-version 409 throws away a fully rendered page, so anything
         ``page_data`` already popped from the session (flash data, validation
         errors, the clearHistory / preserveFragment flags) would silently die
-        with it. Mirrors Laravel's ``Middleware::onVersionChange`` session
-        reflash: the rendered response stashes what it pulled, and we write it
-        back so the client's follow-up hard reload still delivers it.
+        with it. The rendered response stashes what it pulled, and we write it
+        back so the client's follow-up hard reload still delivers it. This
+        exceeds Laravel's ``Middleware::onVersionChange`` reflash, satisfying
+        the protocol's reflash mandate: Laravel's ``Store::reflash()`` only
+        re-marks flash key *names*, and cannot restore values the render
+        already pulled (``ResponseFactory::pullFlashed`` keeps no stash).
         """
         pulled_flash = getattr(response, "_pulled_flash", None)
         if pulled_flash:

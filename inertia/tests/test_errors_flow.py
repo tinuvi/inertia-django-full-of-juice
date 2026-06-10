@@ -1,4 +1,4 @@
-"""Tests for the built-in validation-errors flow (`flash_errors` / `back`).
+"""Tests for the built-in validation-errors flow (`flash_errors` / `redirect_back`).
 
 Mirrors Laravel's redirect-back-with-errors loop: errors are flashed to the
 session, the next render flattens each field to its first message, nests
@@ -25,6 +25,22 @@ class BackRedirectTestCase(InertiaTestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.headers["Location"], "/empty/")
+
+    def test_back_without_referer_resolves_a_url_name_fallback(self) -> None:
+        # ``fallback`` runs through django.shortcuts.resolve_url, so a URL
+        # name resolves to its path.
+        response = self.inertia.get("/back-named-fallback/")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/empty/")
+
+    def test_back_referer_wins_over_a_url_name_fallback(self) -> None:
+        response = self.inertia.get(
+            "/back-named-fallback/", HTTP_REFERER="http://testserver/props/"
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "http://testserver/props/")
 
     def test_back_rejects_a_cross_host_referer(self) -> None:
         response = self.inertia.get(
@@ -97,16 +113,18 @@ class ErrorsFlowTestCase(InertiaTestCase):
             ),
         )
 
-    def test_flash_errors_calls_merge_across_requests(self) -> None:
-        self.inertia.get("/flash-errors-only/")
+    def test_flash_errors_calls_replace_across_requests(self) -> None:
+        # REPLACE semantics (Laravel's ``withErrors``): the second flash wins
+        # wholesale. The first call stored only ``name``; the second stores
+        # ``name`` + ``email`` — and a stale field from the first call must
+        # never resurface.
         self.inertia.get("/back-dict-errors/")
+        self.inertia.get("/flash-errors-only/")
 
         props = self.inertia.get("/empty/").json()["props"]
 
-        self.assertEqual(
-            props["errors"],
-            {"name": "Required", "email": "Invalid"},
-        )
+        self.assertEqual(props["errors"], {"name": "Required"})
+        self.assertNotIn("email", props["errors"])
 
     def test_view_provided_errors_win_but_session_errors_still_age_out(self) -> None:
         self.inertia.get("/flash-errors-only/")
@@ -175,15 +193,46 @@ class FlashErrorsNormalizationTestCase(InertiaTestCase):
             {"age": ["42"], "name": ["Required", "Too short"]},
         )
 
-    def test_corrupted_session_state_raises_type_error(self) -> None:
+    def test_validation_error_values_flatten_to_their_messages(self) -> None:
+        # The add_error normalization idiom: a ValidationError value must
+        # yield its message strings, not "['Nope']"-style repr noise.
+        from django.core.exceptions import ValidationError
+
+        from inertia import flash_errors
+        from inertia.http import INERTIA_SESSION_ERRORS
+
+        request = self._request_with_session()
+
+        flash_errors(request, {"reason": ValidationError("Nope")})
+
+        self.assertEqual(request.session[INERTIA_SESSION_ERRORS], {"reason": ["Nope"]})
+
+    def test_empty_list_values_are_dropped_at_store_time(self) -> None:
+        from inertia import flash_errors
+        from inertia.http import INERTIA_SESSION_ERRORS
+
+        request = self._request_with_session()
+
+        flash_errors(request, {"name": [], "kept": "Required"})
+
+        self.assertEqual(
+            request.session[INERTIA_SESSION_ERRORS], {"kept": ["Required"]}
+        )
+
+    def test_flash_errors_replaces_existing_session_state(self) -> None:
+        # Each call REPLACES the bag wholesale — even hand-corrupted session
+        # state is simply overwritten (no TypeError, no merge).
         from inertia import flash_errors
         from inertia.http import INERTIA_SESSION_ERRORS
 
         request = self._request_with_session()
         request.session[INERTIA_SESSION_ERRORS] = "corrupted"
 
-        with self.assertRaises(TypeError):
-            flash_errors(request, {"name": "Required"})
+        flash_errors(request, {"name": "Required"})
+
+        self.assertEqual(
+            request.session[INERTIA_SESSION_ERRORS], {"name": ["Required"]}
+        )
 
 
 class ErrorsForceRefreshReflashTestCase(InertiaTestCase):

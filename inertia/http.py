@@ -7,9 +7,10 @@ from json import dumps as json_encode
 from typing import Any, Concatenate, ParamSpec, Union
 
 from django.contrib.messages import get_messages
-from django.core.exceptions import ImproperlyConfigured
+from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.forms import BaseForm
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, JsonResponse
+from django.shortcuts import resolve_url
 from django.template.loader import render_to_string
 from django.utils.http import url_has_allowed_host_and_scheme
 
@@ -93,7 +94,7 @@ class InertiaRequest(HttpRequest):
         return self.headers.get("X-Inertia-Error-Bag", "")
 
     def is_inertia(self) -> bool:
-        return "X-Inertia" in self.headers
+        return is_inertia(self)
 
     def should_encrypt_history(self) -> bool:
         should_encrypt = getattr(
@@ -115,12 +116,17 @@ class BaseInertiaResponseMixin:
     # One-shot session state consumed while rendering, kept around so
     # InertiaMiddleware.force_refresh can re-flash it when the rendered
     # response is discarded in favor of a 409 stale-version refresh —
-    # mirroring Laravel's ``onVersionChange`` session reflash.
+    # exceeding Laravel's ``onVersionChange`` session reflash (see
+    # ``InertiaMiddleware.reflash_one_shot_state``).
     _pulled_flash: dict[str, Any] | None = None
     _pulled_errors: dict[str, Any] | None = None
     _pulled_clear_history: bool = False
     _pulled_preserve_fragment: bool = False
-    _rescued_props: list[str]
+    # Shared class-level default is safe: ``build_props`` always REASSIGNS
+    # ``self._rescued_props`` before appending, so the class list is never
+    # mutated — the default only guards ``page_data`` paths that read it
+    # before (or without) a rescue scan.
+    _rescued_props: list[str] = []
 
     def _all_props(self) -> dict[str, Any]:
         """Returns the merged shared + per-request props.
@@ -349,14 +355,15 @@ class BaseInertiaResponseMixin:
         return deep_transform_callables(_props)
 
     def _resolve_session_errors(self) -> dict[str, Any]:
-        """Pulls ``flash_errors``/``back(errors=…)`` state into the ``errors`` prop.
+        """Pulls ``flash_errors``/``redirect_back(errors=…)`` state into the ``errors`` prop.
 
         Mirrors Laravel's ``Middleware::resolveValidationErrors`` (3.x):
         the session bag is consumed (pull), each field is flattened to its
         first message, and when the request carries ``X-Inertia-Error-Bag``
-        the result is nested under that bag name. Runs only when the view
-        did not provide an ``errors`` prop itself (shared or per-request
-        props win), so hand-wired recipes keep working unchanged.
+        the result is nested under that bag name. Always runs — the bag is
+        consumed even when the view supplied its own ``errors`` prop —
+        but shared/per-request ``errors`` props win the merge in
+        ``build_props``, so hand-wired recipes keep working unchanged.
         """
         raw = self.request.session.pop(INERTIA_SESSION_ERRORS, None)
         if raw is None:
@@ -386,9 +393,10 @@ class BaseInertiaResponseMixin:
         Mirrors Laravel's ``Response::resolveFlashData`` (3.x), which pulls
         ``inertia.flash_data`` from the session on every render — partial
         reloads included. When ``INERTIA_FLASH_FROM_MESSAGES`` is enabled,
-        ``django.contrib.messages`` is drained (read-only iteration; the
-        MessageMiddleware exit path clears the store) into the reserved
-        ``messages`` key using the contrib.messages dict shape.
+        ``django.contrib.messages`` is drained into the reserved
+        ``messages`` key using the contrib.messages dict shape. Iterating
+        the storage marks it used — the load-bearing mutation that lets
+        ``MessageMiddleware`` clear the store on the way out.
         """
         raw = self.request.session.pop(INERTIA_SESSION_FLASH, None)
         flash_data: dict[str, Any] = {}
@@ -400,16 +408,34 @@ class BaseInertiaResponseMixin:
             self._pulled_flash = raw
             flash_data = dict(raw)
         if settings.INERTIA_FLASH_FROM_MESSAGES:
-            drained = [
-                {
-                    "message": message.message,
-                    "level": message.level,
-                    "tags": message.tags,
-                    "extra_tags": message.extra_tags,
-                    "level_tag": message.level_tag,
-                }
-                for message in get_messages(self.request)
-            ]
+            drained: list[dict[str, Any]] = []
+            for message in get_messages(self.request):
+                # ``message.message`` / ``message.extra_tags`` may still be
+                # lazy translation proxies — ``Message._prepare`` only
+                # str-coerces them when the storage serializes, which never
+                # happens for messages added and drained within one request.
+                # Falsy extra_tags ("" — the ``add_message`` default — or
+                # None) pass through verbatim.
+                extra = (
+                    str(message.extra_tags)
+                    if message.extra_tags
+                    else message.extra_tags
+                )
+                drained.append(
+                    {
+                        "message": str(message.message),
+                        "level": message.level,
+                        # Replicates ``Message.tags`` (django/contrib/messages/
+                        # storage/base.py) over the coerced extra_tags —
+                        # reading ``message.tags`` directly would feed the
+                        # lazy proxy into str.join and raise TypeError.
+                        "tags": " ".join(
+                            tag for tag in [extra, message.level_tag] if tag
+                        ),
+                        "extra_tags": extra,
+                        "level_tag": message.level_tag,
+                    }
+                )
             if drained:
                 flash_data["messages"] = drained
         if flash_data:
@@ -547,6 +573,16 @@ class BaseInertiaResponseMixin:
 
         for key, prop in self._all_props().items():
             if not isinstance(prop, MergeableProp):
+                continue
+            if key in self._rescued_props:
+                # Mirrors Laravel's ``PropsResolver::resolveProps`` (3.x),
+                # where the rescued ``continue`` precedes collectMetadata: a
+                # rescued prop was dropped from ``props``, so it must not
+                # advertise merge metadata for a value that never shipped.
+                _logger.debug(
+                    "build_merge_kinds: dropping merge metadata for %r because it was rescued",
+                    key,
+                )
                 continue
             if not prop.should_merge():
                 continue
@@ -783,12 +819,13 @@ def is_inertia(request: HttpRequest) -> bool:
     return "X-Inertia" in request.headers
 
 
-def flash(request: HttpRequest, **kwargs: Any) -> None:
+def flash(request: HttpRequest, /, **kwargs: Any) -> None:
     """Stores one-shot flash data emitted via the v3 ``flash`` page field.
 
     Mirrors Laravel's ``Inertia::flash()`` (3.x): values merge with any
     already-flashed data and survive redirects, because they are only
     pulled from the session when an Inertia page actually renders.
+    ``request`` is positional-only so a ``request=`` flash key stays usable.
     """
     existing = request.session.get(INERTIA_SESSION_FLASH, {})
     if not isinstance(existing, dict):
@@ -806,11 +843,21 @@ def _normalize_errors(errors: ErrorsInput) -> dict[str, list[str]]:
     normalized: dict[str, list[str]] = {}
     for field, value in errors.items():
         if isinstance(value, str):
-            normalized[field] = [value]
+            messages_ = [value]
         elif isinstance(value, (list, tuple)):
-            normalized[field] = [str(item) for item in value]
+            messages_ = [str(item) for item in value]
         else:
-            normalized[field] = [str(value)]
+            # The ``Form.add_error`` normalization idiom: routing the value
+            # through ValidationError flattens ValidationError instances to
+            # their proper message strings (instead of repr noise) and
+            # str-coerces scalars via its ``__iter__``.
+            messages_ = ValidationError(value).messages
+        if not messages_:
+            # ``{"name": []}`` → omit the key at store time; an empty message
+            # list would surface as an error with nothing to display
+            # (``errors.get_json_data()`` never emits empty lists either).
+            continue
+        normalized[field] = messages_
     return normalized
 
 
@@ -819,25 +866,22 @@ def flash_errors(request: HttpRequest, errors: ErrorsInput) -> None:
 
     The Django mirror of Laravel's ``redirect()->withErrors()`` storage
     half: accepts a bound ``Form`` or a mapping of field → message(s),
-    normalizes every field to a list of strings, and merges with any
-    errors already flashed. ``build_props`` pulls them into the ``errors``
-    prop on the next render (first message per field, nested under
-    ``X-Inertia-Error-Bag`` when the request carries one).
+    normalizes every field to a list of strings, and REPLACES any errors
+    already flashed — Django form errors are a per-run snapshot of the
+    whole submission, matching ``withErrors``'s wholesale replace.
+    ``build_props`` pulls them into the ``errors`` prop on the next render
+    (first message per field, nested under ``X-Inertia-Error-Bag`` when
+    the request carries one).
     """
     normalized = _normalize_errors(errors)
-    existing = request.session.get(INERTIA_SESSION_ERRORS, {})
-    if not isinstance(existing, dict):
-        raise TypeError(
-            f"Expected dict for session validation errors, got {type(existing).__name__}"
-        )
-    request.session[INERTIA_SESSION_ERRORS] = {**existing, **normalized}
+    request.session[INERTIA_SESSION_ERRORS] = normalized
     _logger.debug(
         "flash_errors(): stored one-shot validation errors for fields=%s",
         sorted(normalized.keys()),
     )
 
 
-def back(
+def redirect_back(
     request: HttpRequest,
     *,
     errors: ErrorsInput | None = None,
@@ -849,12 +893,14 @@ def back(
     deliberately diverge by validating the ``Referer`` with Django's
     ``url_has_allowed_host_and_scheme`` (the ``contrib.auth`` idiom) so an
     attacker-controlled header can never produce an open redirect; unsafe
-    or missing referers fall back to ``fallback``.
+    or missing referers fall back to ``fallback``, resolved through
+    ``django.shortcuts.resolve_url`` so URL names work alongside literal
+    paths.
     """
     if errors is not None:
         flash_errors(request, errors)
     referer = request.META.get("HTTP_REFERER", "")
-    target = fallback
+    target = resolve_url(fallback)
     if referer and url_has_allowed_host_and_scheme(
         referer,
         allowed_hosts={request.get_host()},
@@ -862,7 +908,9 @@ def back(
     ):
         target = referer
     _logger.debug(
-        "back(): redirecting to %r (errors_attached=%s)", target, errors is not None
+        "redirect_back(): redirecting to %r (errors_attached=%s)",
+        target,
+        errors is not None,
     )
     return HttpResponseRedirect(target)
 

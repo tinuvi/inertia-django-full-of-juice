@@ -4,10 +4,11 @@ from django import forms
 from django.contrib import messages as django_messages
 from django.http.response import HttpResponse
 from django.shortcuts import redirect
-from django.utils.decorators import decorator_from_middleware
+from django.utils.decorators import decorator_from_middleware, method_decorator
+from django.utils.translation import gettext_lazy
+from django.views import View
 
 from inertia import (
-    back,
     clear_history,
     deep_merge,
     defer,
@@ -26,6 +27,7 @@ from inertia import (
     precognition,
     prepend,
     preserve_fragment,
+    redirect_back,
     render,
     share,
 )
@@ -34,6 +36,8 @@ from inertia.http import (
     INERTIA_SESSION_FLASH,
     INERTIA_SESSION_PRESERVE_FRAGMENT,
 )
+
+from .models import Sport
 
 
 class ShareMiddleware:
@@ -668,6 +672,17 @@ def flash_messages_bridge_test(request):
     return {}
 
 
+@inertia("TestComponent")
+def flash_messages_lazy_bridge_test(request):
+    # Lazy translation proxies stay lazy when added and drained within one
+    # request (Message._prepare only runs on storage serialization) — the
+    # bridge must str-coerce them itself.
+    django_messages.success(
+        request, gettext_lazy("Saved"), extra_tags=gettext_lazy("billing")
+    )
+    return {}
+
+
 # --- built-in validation-errors flow ----------------------------------------
 
 
@@ -677,17 +692,25 @@ class GuestForm(forms.Form):
 
 
 def back_with_dict_errors_test(request):
-    return back(request, errors={"name": ["Required", "Too short"], "email": "Invalid"})
+    return redirect_back(
+        request, errors={"name": ["Required", "Too short"], "email": "Invalid"}
+    )
 
 
 def back_with_form_errors_test(request):
     form = GuestForm(data={"name": "x" * 20, "email": "nope"})
     form.is_valid()
-    return back(request, errors=form)
+    return redirect_back(request, errors=form)
 
 
 def back_plain_test(request):
-    return back(request, fallback="/empty/")
+    return redirect_back(request, fallback="/empty/")
+
+
+def back_named_fallback_test(request):
+    # ``fallback`` is resolved with django.shortcuts.resolve_url, so URL
+    # names work alongside literal paths.
+    return redirect_back(request, fallback="empty-route")
 
 
 def flash_errors_only_test(request):
@@ -716,11 +739,6 @@ def precog_test(request):
     return {"submitted": True}
 
 
-@precognition(PrecogForm)
-async def precog_async_test(request):
-    return HttpResponse("async ok")
-
-
 class PrecogUploadForm(forms.Form):
     avatar = forms.FileField()
 
@@ -728,6 +746,64 @@ class PrecogUploadForm(forms.Form):
 @precognition(PrecogUploadForm)
 def precog_upload_test(request):
     return HttpResponse("upload ok")
+
+
+class PrecogSportForm(forms.Form):
+    # ModelChoiceField cleaning hits the ORM (queryset ``.get`` on
+    # ``to_python``) — pins that DB-backed validation works through the
+    # decorator's synchronous pipeline.
+    sport = forms.ModelChoiceField(queryset=Sport.objects.all())
+
+
+@precognition(PrecogSportForm)
+def precog_orm_test(request):
+    return HttpResponse("orm ok")
+
+
+class PrecogProfileForm(forms.Form):
+    # Mirrors Django's ``SetPasswordForm(user, …)`` constructor shape: an
+    # extra required constructor argument the decorator can only satisfy
+    # through ``form_kwargs``.
+    nickname = forms.CharField(max_length=10)
+
+    def __init__(self, owner, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.owner = owner
+
+    def clean_nickname(self):
+        nickname = self.cleaned_data["nickname"]
+        if nickname == self.owner:
+            raise forms.ValidationError("Nickname must differ from owner.")
+        return nickname
+
+
+@precognition(PrecogProfileForm, form_kwargs=lambda request: {"owner": "admin"})
+def precog_form_kwargs_test(request):
+    return HttpResponse("form kwargs ok")
+
+
+class PrecogCrossFieldForm(forms.Form):
+    name = forms.CharField(max_length=5)
+    email = forms.EmailField()
+
+    def clean(self):
+        cleaned = super().clean()
+        # Deliberately violates the documented Django contract (clean() must
+        # use .get() and may only add_error() on still-present fields): when
+        # Validate-Only pops ``name``, add_error("name", …) raises ValueError.
+        self.add_error("name", "Cross-field rejection")
+        return cleaned
+
+
+@precognition(PrecogCrossFieldForm)
+def precog_cross_field_test(request):
+    return HttpResponse("cross field ok")
+
+
+@method_decorator(precognition(PrecogForm), name="post")
+class PrecogCBV(View):
+    def post(self, request):
+        return HttpResponse("cbv ok")
 
 
 @decorator_from_middleware(ShareMiddleware)
@@ -774,4 +850,15 @@ def defer_rescue_after_ok_test(request):
     return {
         "teams": defer(lambda: ["Bulls"]),
         "stats": defer(_explode, rescue=True),
+    }
+
+
+@inertia("TestComponent")
+def defer_rescue_merge_test(request):
+    # A mergeable prop that gets rescued must drop its merge metadata too
+    # (Laravel's PropsResolver::resolveProps rescued-continue precedes
+    # collectMetadata); the healthy mergeable sibling keeps its entry.
+    return {
+        "stats": defer(_explode, merge=True, rescue=True),
+        "teams": defer(lambda: ["Bulls"], merge=True),
     }

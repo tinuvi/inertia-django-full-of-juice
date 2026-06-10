@@ -35,7 +35,7 @@ Everything this adapter speaks, with the **recommended approach** and the **E2E 
 | 🖥️ Server-side rendering (SSR) | ✅ | `INERTIA_SSR_ENABLED = True` | [SSR](#ssr) | [`ssr-exclusion`](playwright_e2e/tests-ssr/ssr-exclusion.spec.ts) |
 | 🚫 Per-route SSR opt-out | ✅ | `INERTIA_SSR_EXCLUDE = [r'^/admin/']` | [SSR](#ssr) | [`ssr-exclusion`](playwright_e2e/tests-ssr/ssr-exclusion.spec.ts) |
 | 🛡️ CSRF cookie/header alignment | ⚠️ | align names once (client `setClient` **or** Django settings) | [CSRF](#csrf) | [`form-validation`](playwright_e2e/tests/form-validation.spec.ts) |
-| 🧾 Validation errors (Inertia visits) | ✅ | `back(request, errors=form)` · `flash_errors(request, …)` | [Validation errors & error bags](#validation-errors--error-bags) | [`form-validation`](playwright_e2e/tests/form-validation.spec.ts) |
+| 🧾 Validation errors (Inertia visits) | ✅ | `redirect_back(request, errors=form)` · `flash_errors(request, …)` | [Validation errors & error bags](#validation-errors--error-bags) | [`form-validation`](playwright_e2e/tests/form-validation.spec.ts) |
 | 🧰 Error bags (multi-form scoping) | ✅ ⚙️ | automatic — flashed errors nest under `X-Inertia-Error-Bag` | [Validation errors & error bags](#validation-errors--error-bags) | [`error-bags`](playwright_e2e/tests/error-bags.spec.ts) |
 | 🌐 `useHttp` validation (`422` shape) | ✅ | `errors_response(errors, message=…)` | [useHttp responses](#validation-responses-for-usehttp) | [`errors-response`](playwright_e2e/tests/errors-response.spec.ts) |
 | 🧪 Test assertions | ✅ | `InertiaTestCase` | [Testing](#testing) | — *(harness)* |
@@ -458,7 +458,7 @@ def update(request):
     return redirect("/settings/")
 ```
 
-Flash data survives redirects (it is only consumed when a page actually renders) and even the `409` stale-asset refresh — `InertiaMiddleware` re-flashes whatever a discarded stale response had already consumed, like Laravel's `onVersionChange` session reflash.
+Flash data survives redirects (it is only consumed when a page actually renders) and even the `409` stale-asset refresh — `InertiaMiddleware` writes back whatever a discarded stale response had already consumed. That exceeds Laravel's `onVersionChange` reflash while satisfying the protocol's reflash mandate: Laravel's `Store::reflash()` only re-marks flash key names and cannot restore values its render already pulled. In mixed Inertia/classic apps, note that flashed state simply waits in the session for the next *Inertia* render — classic template responses don't consume it — bounded by session expiry, the same way unread `contrib.messages` wait for their next read.
 
 **Bridging `django.contrib.messages`.** If your flash messages already live in Django's messages framework, set `INERTIA_FLASH_FROM_MESSAGES = True` and every render drains them into `flash.messages` as `{message, level, tags, extra_tags, level_tag}` dicts — no middleware recipe needed, and because the drain happens at render time, partial reloads and multi-hop redirects can't consume a message without delivering it. `MessageMiddleware` must sit above `InertiaMiddleware` (the conventional order) so the storage is cleared on the way out. The hand-wired recipe of sharing messages as a regular prop keeps working if you prefer it; `messages` is a reserved `flash` key while the bridge is on.
 
@@ -467,17 +467,17 @@ Flash data survives redirects (it is only consumed when a page actually renders)
 The v3 protocol reserves an `errors` object on the page (`page.props.errors`). It defaults to `{}`, and the client treats a **non-empty** `errors` as "this request failed" — firing `onError` instead of `onSuccess`. This adapter always reserves that slot for you (it survives partial reloads, just like Laravel's `Inertia::always`), and ships the Laravel-style redirect-back loop as helpers:
 
 ```python
-from inertia import back
+from inertia import redirect_back
 
 def update(request):
     form = MyForm(request.POST)
     if not form.is_valid():
-        return back(request, errors=form, fallback="/settings/")
+        return redirect_back(request, errors=form, fallback="/settings/")
     # ... handle valid form ...
     return redirect("/settings/")
 ```
 
-`back()` flashes the errors to the session (accepting a bound `Form` or a `{field: message(s)}` mapping) and redirects to the validated `Referer` (falling back to `fallback`; unlike Laravel's `back()` the referrer is checked with Django's `url_has_allowed_host_and_scheme`, so the header can't produce an open redirect). The next render pulls them into `props.errors` — first message per field, exactly what the client's `form.errors` expects. To keep a custom redirect, call `flash_errors(request, errors)` yourself and return any response you like. `InertiaMiddleware` already upgrades `PUT`/`PATCH`/`DELETE` redirects to `303`, so the follow-up request is a `GET` that renders the flashed errors.
+`redirect_back()` flashes the errors to the session (accepting a bound `Form` or a `{field: message(s)}` mapping) and redirects to the validated `Referer` (falling back to `fallback`, which runs through `django.shortcuts.resolve_url` so URL names work alongside literal paths; unlike Laravel's `back()` the referrer is checked with Django's `url_has_allowed_host_and_scheme`, so the header can't produce an open redirect). The next render pulls them into `props.errors` — first message per field, exactly what the client's `form.errors` expects. Non-field errors (from a form's `clean()`) arrive under Django's literal `__all__` key, matching `errors.get_json_data()`. Each `flash_errors()` / `redirect_back(errors=…)` call **replaces** any errors already flashed — Django form errors are a per-run snapshot of the whole submission, the same wholesale replace as Laravel's `withErrors`. To keep a custom redirect, call `flash_errors(request, errors)` yourself and return any response you like. `InertiaMiddleware` already upgrades `PUT`/`PATCH`/`DELETE` redirects to `303`, so the follow-up request is a `GET` that renders the flashed errors.
 
 **Error bags are handled automatically.** When a form sets the `errorBag` option, the client sends the `X-Inertia-Error-Bag` header (and re-sends it while following the redirect); the render nests the flashed errors under that bag name (`errors.createUser.email`), so two forms on one page never see each other's errors.
 
@@ -502,7 +502,7 @@ def submit(request):
     # ... handle valid form ...
 ```
 
-`errors_response()` is specifically for the `useHttp` hook. For regular Inertia visits (form submissions through `useForm` / `router.post`), use `back(request, errors=…)` from [Validation errors & error bags](#validation-errors--error-bags) above instead.
+`errors_response()` is specifically for the `useHttp` hook. For regular Inertia visits (form submissions through `useForm` / `router.post`), use `redirect_back(request, errors=…)` from [Validation errors & error bags](#validation-errors--error-bags) above instead.
 
 ### Precognition (live form validation)
 
@@ -529,7 +529,17 @@ const form = useForm('post', '/signup/', { name: '', email: '' })
 // form.validating · form.valid('email') · form.invalid('email') · form.errors.email
 ```
 
-The decorator implements the wire contract the client hard-requires: validation success → `204 No Content` with `Precognition-Success: true`; failure → `422` with `{"message": …, "errors": {field: [messages]}}`; every response — precognitive or not — carries `Vary: Precognition` and precognitive ones echo `Precognition: true` (without that header the client throws `"Did not receive a Precognition response"`). `Precognition-Validate-Only` scoping pops the unlisted fields off the form *instance* before validation — Django's sanctioned way to restrict a form — so untouched required fields never false-error and their validators never run; `*` in a pattern matches one dot segment, like Laravel. Request bodies are parsed the way the client sends them: JSON by default, query params for `GET`/`DELETE`, `multipart/form-data` when file validation is enabled. Sync and async views are both supported, and the decorator is `method_decorator`-compatible for CBVs. `is_precognitive(request)` is exported for hand-rolled flows (e.g. DRF serializers).
+The decorator implements the wire contract the client hard-requires: validation success → `204 No Content` with `Precognition-Success: true`; failure → `422` with `{"message": …, "errors": {field: [messages]}}`; every response — precognitive or not — carries `Vary: Precognition` and precognitive ones echo `Precognition: true` (without that header the client throws `"Did not receive a Precognition response"`). `Precognition-Validate-Only` scoping pops the unlisted fields off the form *instance* before validation — Django's sanctioned way to restrict a form — so untouched required fields never false-error and their validators never run; `*` in a pattern matches one dot segment, like Laravel. One consequence for cross-field validation: popped fields are absent from `cleaned_data`, so your `clean()` must read them with `.get()` (the documented Django contract), and `add_error()` on a popped field raises. Request bodies are parsed the way the client sends them: JSON by default, query params for `GET`/`DELETE`, `multipart/form-data` when file validation is enabled. The decorator is sync-only by design — the library targets synchronous Django (serve async deployments with [gevent](https://github.com/gevent/gevent)), so an `async def` view raises `TypeError` at decoration time; ORM-backed forms (`ModelForm`, `ModelChoiceField`) validate as usual on the synchronous path. It is `method_decorator`-compatible for CBVs. `is_precognitive(request)` and `validate_only_keys(request)` are exported for hand-rolled flows (e.g. DRF serializers).
+
+Forms that need extra constructor arguments — `SetPasswordForm(user, …)`, a `ModelForm` updating an `instance` — take them via `form_kwargs`, a per-request callable mirroring Django's `FormMixin.get_form_kwargs`:
+
+```python
+@precognition(SetPasswordForm, form_kwargs=lambda request: {"user": request.user})
+def change_password(request):
+    ...
+```
+
+**Malformed bodies are a deliberate Django-idiom divergence.** An unparseable envelope (broken JSON, a non-object JSON body, a corrupt multipart payload) returns a `400` JSON `{"message": "Malformed request body."}` — still echoing `Precognition: true` — rather than Laravel's behavior of coercing the broken body to an empty payload and answering `422` (Laravel's `Request::json` swallows decode failures). Django core's stance is that an unreadable envelope is an explicit `400` (`MultiPartParserError` → `400` in `django/core/handlers/exception.py`), and we follow it.
 
 ### Json Encoding
 

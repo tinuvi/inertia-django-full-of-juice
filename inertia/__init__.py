@@ -1,6 +1,6 @@
 from .http import (
+    ErrorsInput,
     InertiaResponse,
-    back,
     clear_history,
     encrypt_history,
     errors_response,
@@ -11,16 +11,17 @@ from .http import (
     is_inertia,
     location,
     preserve_fragment,
+    redirect_back,
     render,
 )
 from .infinite_scroll import infinite_scroll
-from .precognition import is_precognitive, precognition
+from .precognition import is_precognitive, precognition, validate_only_keys
 from .share import share
 from .utils import deep_merge, defer, lazy, merge, once, optional, prepend
 
 __all__ = [
+    "ErrorsInput",
     "InertiaResponse",
-    "back",
     "clear_history",
     "encrypt_history",
     "errors_response",
@@ -34,8 +35,10 @@ __all__ = [
     "location",
     "precognition",
     "preserve_fragment",
+    "redirect_back",
     "render",
     "share",
+    "validate_only_keys",
     "deep_merge",
     "defer",
     "lazy",

@@ -139,6 +139,36 @@ class PrecognitionFailureTestCase(InertiaTestCase):
 
         self.assertEqual(response.status_code, 400)
 
+    def test_corrupt_multipart_body_returns_our_json_400_with_echo(self) -> None:
+        # MultiPartParserError must be caught alongside ValueError so a
+        # corrupt multipart envelope (here: boundary-less, the canonical
+        # "Invalid boundary in multipart" trigger) gets OUR JSON 400 with
+        # the ``Precognition: true`` echo, not Django's HTML 400 without it.
+        response = self.client.post(
+            "/precog/",
+            data="complete garbage, no boundary markers",
+            content_type="multipart/form-data",
+            HTTP_PRECOGNITION="true",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.headers["Precognition"], "true")
+        self.assertEqual(response.json(), {"message": "Malformed request body."})
+
+    def test_corrupt_multipart_body_on_put_returns_our_json_400_with_echo(self) -> None:
+        # The non-POST branch parses via request.parse_file_upload — the same
+        # corrupt envelope must land in the same JSON 400.
+        response = self.client.put(
+            "/precog/",
+            data="complete garbage, no boundary markers",
+            content_type="multipart/form-data",
+            HTTP_PRECOGNITION="true",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.headers["Precognition"], "true")
+        self.assertEqual(response.json(), {"message": "Malformed request body."})
+
 
 class ValidateOnlyTestCase(InertiaTestCase):
     def test_only_listed_fields_are_validated(self) -> None:
@@ -212,10 +242,136 @@ class PrecognitionPassThroughTestCase(InertiaTestCase):
         self.assertEqual(response.json()["props"]["submitted"], True)
 
 
-class AsyncViewSupportTestCase(InertiaTestCase):
-    def test_precognitive_request_short_circuits_an_async_view(self) -> None:
+class AsyncViewRejectionTestCase(InertiaTestCase):
+    """The shipped library is synchronous by design (async deployments run
+    under gevent): handing the decorator an ``async def`` view must raise
+    ``TypeError`` at decoration time, never silently wrap it."""
+
+    def test_decorating_an_async_view_raises_type_error(self) -> None:
+        from inertia.precognition import precognition
+        from inertia.tests.testapp.views import PrecogForm
+
+        # Tests are exempt from the no-async rule: this fixture exists only
+        # to pin the decoration-time guard.
+        async def view(request):  # pragma: no cover - never awaited
+            raise AssertionError("never reached")
+
+        with self.assertRaisesMessage(TypeError, "does not support async views"):
+            precognition(PrecogForm)(view)
+
+
+class OrmValidationTestCase(InertiaTestCase):
+    """DB-backed validation works through the decorator's synchronous
+    pipeline (``ModelChoiceField`` cleaning hits the ORM)."""
+
+    def test_model_choice_field_validates_against_the_orm(self) -> None:
+        from inertia.tests.testapp.models import Sport
+
+        sport = Sport.objects.create(name="Hockey", season="winter")
+
         response = self.client.post(
-            "/precog-async/",
+            "/precog-orm/",
+            data=dumps({"sport": sport.pk}),
+            content_type="application/json",
+            HTTP_PRECOGNITION="true",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response.headers["Precognition-Success"], "true")
+
+    def test_unknown_fk_id_returns_422(self) -> None:
+        response = self.client.post(
+            "/precog-orm/",
+            data=dumps({"sport": 999_999}),
+            content_type="application/json",
+            HTTP_PRECOGNITION="true",
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(sorted(response.json()["errors"].keys()), ["sport"])
+
+
+class FormKwargsTestCase(InertiaTestCase):
+    """``form_kwargs`` mirrors Django's ``FormMixin.get_form_kwargs``: the
+    per-request mapping is splatted into the form constructor, unblocking
+    ``SetPasswordForm(user, …)``-style forms."""
+
+    def test_extra_constructor_kwarg_reaches_the_form(self) -> None:
+        # The view's form_kwargs injects owner="admin"; a matching nickname
+        # proves the kwarg arrived (clean_nickname rejects it).
+        response = self.client.post(
+            "/precog-form-kwargs/",
+            data=dumps({"nickname": "admin"}),
+            content_type="application/json",
+            HTTP_PRECOGNITION="true",
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(
+            response.json()["errors"]["nickname"],
+            ["Nickname must differ from owner."],
+        )
+
+    def test_valid_payload_with_form_kwargs_returns_204(self) -> None:
+        response = self.client.post(
+            "/precog-form-kwargs/",
+            data=dumps({"nickname": "brandon"}),
+            content_type="application/json",
+            HTTP_PRECOGNITION="true",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response.headers["Precognition-Success"], "true")
+
+    def test_without_form_kwargs_the_form_is_constructed_as_before(self) -> None:
+        # The default (form_kwargs=None) path must not splat anything extra.
+        response = self.client.post(
+            "/precog/",
+            data=dumps(VALID),
+            content_type="application/json",
+            HTTP_PRECOGNITION="true",
+        )
+
+        self.assertEqual(response.status_code, 204)
+
+
+class AddErrorOnPoppedFieldTestCase(InertiaTestCase):
+    """Recorded decision: a ``clean()`` that calls ``add_error()`` on a field
+    Validate-Only popped off the instance raises ``ValueError`` (the request
+    500s). Django's documented contract is that cross-field ``clean()`` must
+    use ``cleaned_data.get()`` and may only ``add_error()`` on fields still
+    present on the form."""
+
+    def test_add_error_on_a_popped_field_raises_value_error(self) -> None:
+        with self.assertRaises(ValueError):
+            self.client.post(
+                "/precog-cross-field/",
+                data=dumps({"email": "a@b.com"}),
+                content_type="application/json",
+                HTTP_PRECOGNITION="true",
+                HTTP_PRECOGNITION_VALIDATE_ONLY="email",
+            )
+
+    def test_add_error_on_a_still_present_field_reports_normally(self) -> None:
+        # Without Validate-Only the same clean() works — the 500 above is
+        # purely the popped-field interaction.
+        response = self.client.post(
+            "/precog-cross-field/",
+            data=dumps({"name": "ok", "email": "a@b.com"}),
+            content_type="application/json",
+            HTTP_PRECOGNITION="true",
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["errors"]["name"], ["Cross-field rejection"])
+
+
+class MethodDecoratorCompatibilityTestCase(InertiaTestCase):
+    """``@method_decorator(precognition(...), name="post")`` on a CBV."""
+
+    def test_precognitive_post_to_a_cbv_returns_204(self) -> None:
+        response = self.client.post(
+            "/precog-cbv/",
             data=dumps(VALID),
             content_type="application/json",
             HTTP_PRECOGNITION="true",
@@ -224,12 +380,32 @@ class AsyncViewSupportTestCase(InertiaTestCase):
         self.assertEqual(response.status_code, 204)
         self.assertEqual(response.headers["Precognition-Success"], "true")
 
-    def test_async_pass_through_runs_the_view_and_varies(self) -> None:
-        response = self.client.get("/precog-async/")
+    def test_non_precognitive_post_runs_the_cbv_body(self) -> None:
+        response = self.client.post(
+            "/precog-cbv/",
+            data=dumps(VALID),
+            content_type="application/json",
+        )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.content, b"async ok")
+        self.assertEqual(response.content, b"cbv ok")
         self.assertIn("Precognition", vary_directives(response))
+
+    def test_decorating_an_unbound_method_without_method_decorator_raises(
+        self,
+    ) -> None:
+        # Mirrors django/views/decorators/cache.py's _check_request guard:
+        # the wrapper must name method_decorator when the first argument is
+        # not an HttpRequest (e.g. ``self`` from a raw classmethod).
+        from inertia.precognition import precognition
+        from inertia.tests.testapp.views import PrecogForm
+
+        @precognition(PrecogForm)
+        def view(request):
+            raise AssertionError("never reached")
+
+        with self.assertRaisesMessage(TypeError, "method_decorator"):
+            view(object())
 
 
 class NonPostBodyParsingTestCase(InertiaTestCase):
@@ -380,4 +556,26 @@ class PrecognitionHelpersTestCase(InertiaTestCase):
         data, files = _parse_request_data(request)
 
         self.assertEqual(data, {})
+        self.assertIsNone(files)
+
+    def test_non_post_urlencoded_body_honors_the_declared_charset(self) -> None:
+        # The documented leniency: the non-POST urlencoded path decodes with
+        # request.encoding (set from the content-type charset param), where
+        # Django's own POST path hardcodes utf-8. ``\xc3\xbc`` is valid in
+        # BOTH encodings — "ü" in utf-8 but "Ã¼" in latin-1 — so honoring
+        # the declared charset is observable (no UnicodeDecodeError fallback
+        # can mask it).
+        from django.test import RequestFactory
+
+        from inertia.precognition import _parse_request_data
+
+        request = RequestFactory().put(
+            "/",
+            data=b"name=M\xc3\xbcller",
+            content_type="application/x-www-form-urlencoded; charset=iso-8859-1",
+        )
+
+        data, files = _parse_request_data(request)
+
+        self.assertEqual(data.get("name"), "MÃ¼ller")
         self.assertIsNone(files)

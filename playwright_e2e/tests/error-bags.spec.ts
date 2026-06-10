@@ -19,7 +19,7 @@ test.describe("Bags — error bags scope two forms on one page", () => {
 		await page.getByRole("button", { name: "Subscribe" }).click();
 		const response = await submit;
 
-		// Wire: the POST carries the bag name and `back()` answers with a
+		// Wire: the POST carries the bag name and `redirect_back()` answers with a
 		// redirect after flashing the errors to the session…
 		expect(response.request().headers()["x-inertia-error-bag"]).toBe(
 			"newsletter",

@@ -6,7 +6,7 @@ test.describe("Form — useForm validation flow", () => {
 
 		await page.getByRole("button", { name: "Submit" }).click();
 
-		// `back(request, errors=…)` redirects to the referring page; the client
+		// `redirect_back(request, errors=…)` redirects to the referring page; the client
 		// follows and the next render pulls the flashed errors into
 		// props.errors, rendering them inline on the same component.
 		await expect(page.getByText("Name is required")).toBeVisible();

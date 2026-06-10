@@ -8,7 +8,6 @@ from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
 
 from inertia import (
-    back,
     clear_history,
     deep_merge,
     defer,
@@ -25,6 +24,7 @@ from inertia import (
     precognition,
     prepend,
     preserve_fragment,
+    redirect_back,
 )
 
 from .models import Player
@@ -111,7 +111,7 @@ def form_page(request: HttpRequest) -> dict:
 
 @require_http_methods(["POST"])
 def form_submit(request: HttpRequest) -> HttpResponse:
-    # The built-in redirect-back-with-errors flow: `back()` flashes the
+    # The built-in redirect-back-with-errors flow: `redirect_back()` flashes
     # errors to the session and the next render pulls them into the
     # `errors` prop (first message per field), Laravel-style.
     try:
@@ -126,7 +126,7 @@ def form_submit(request: HttpRequest) -> HttpResponse:
     if "@" not in email:
         errors["email"] = "Email is invalid"
     if errors:
-        return back(request, errors=errors, fallback="/form/")
+        return redirect_back(request, errors=errors, fallback="/form/")
     return redirect("/?submitted=1")
 
 
@@ -146,7 +146,9 @@ def bags_newsletter(request: HttpRequest) -> HttpResponse:
         payload = {}
     email = str(payload.get("email") or "").strip()
     if "@" not in email:
-        return back(request, errors={"email": "Email is invalid"}, fallback="/bags/")
+        return redirect_back(
+            request, errors={"email": "Email is invalid"}, fallback="/bags/"
+        )
     return redirect("/bags/?subscribed=1")
 
 
@@ -158,7 +160,7 @@ def bags_feedback(request: HttpRequest) -> HttpResponse:
         payload = {}
     comment = str(payload.get("comment") or "").strip()
     if not comment:
-        return back(
+        return redirect_back(
             request, errors={"comment": "Comment is required"}, fallback="/bags/"
         )
     return redirect("/bags/?thanked=1")
@@ -270,7 +272,7 @@ def precognition_submit(request: HttpRequest) -> HttpResponse:
         payload = {}
     form = SignupForm(payload)
     if not form.is_valid():
-        return back(request, errors=form, fallback="/precognition/")
+        return redirect_back(request, errors=form, fallback="/precognition/")
     return redirect("/precognition/?signed=1")
 
 

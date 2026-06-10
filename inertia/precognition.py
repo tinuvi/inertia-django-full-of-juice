@@ -19,23 +19,33 @@ Wire contract (v3 protocol, "the-protocol" §Precognition):
 
 import logging
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable, Mapping
 from functools import wraps
 from http import HTTPStatus
 from json import loads as json_decode
-from typing import Any, Concatenate, ParamSpec, cast
+from typing import Any, Concatenate, ParamSpec
 
 from asgiref.sync import iscoroutinefunction
 from django.forms import BaseForm
 from django.http import HttpRequest, HttpResponse, JsonResponse, QueryDict
-from django.http.multipartparser import MultiPartParser
+from django.http.multipartparser import MultiPartParserError
 from django.utils.cache import patch_vary_headers
 
-from .http import errors_response
+from .http import _normalize_errors, errors_response
 
 _logger = logging.getLogger("inertia_django_full_of_juice")
 
 P = ParamSpec("P")
+
+# Sync views only: the shipped library is synchronous by design (async
+# deployments are served by gevent), so the decorator's typed surface
+# statically rejects ``async def`` views and the runtime guard below raises
+# for anything that slips through.
+ViewFunc = Callable[Concatenate[HttpRequest, P], HttpResponse]
+
+# Per-request extra form-constructor kwargs, mirroring the shape of Django's
+# ``FormMixin.get_form_kwargs`` contract.
+FormKwargs = Callable[[HttpRequest], Mapping[str, Any]]
 
 PRECOGNITION_HEADER = "Precognition"
 PRECOGNITION_VALIDATE_ONLY_HEADER = "Precognition-Validate-Only"
@@ -45,7 +55,12 @@ PRECOGNITION_SUCCESS_HEADER = "Precognition-Success"
 # (structured suffixes like ``application/vnd.api+json`` count as JSON).
 _JSON_CONTENT_TYPE_RE = re.compile(r"^application/(.+\+)?json")
 
-ViewFunc = Callable[Concatenate[HttpRequest, P], HttpResponse]
+# Unreadable-envelope failures from ``_parse_request_data``: JSONDecodeError
+# is a ValueError subclass; MultiPartParserError is a corrupt multipart
+# envelope. Kept as a named tuple constant (not an inline except-tuple) so
+# the py314-targeting formatter can never rewrite the except clause into
+# PEP 758 syntax, which is invalid on the supported Python ^3.12.
+_MALFORMED_BODY_ERRORS = (ValueError, MultiPartParserError)
 
 
 def is_precognitive(request: HttpRequest) -> bool:
@@ -58,6 +73,15 @@ def validate_only_keys(request: HttpRequest) -> list[str]:
     ``CanBePrecognitive::filterPrecognitiveRules``."""
     raw = request.headers.get(PRECOGNITION_VALIDATE_ONLY_HEADER, "")
     return [key for key in raw.split(",") if key]
+
+
+def _check_request(request: HttpRequest, decorator_name: str) -> None:
+    """Mirrors ``django/views/decorators/cache.py``'s ``_check_request``."""
+    if not hasattr(request, "META"):
+        raise TypeError(
+            f"{decorator_name} didn't receive an HttpRequest. If you are "
+            "decorating a classmethod, be sure to use @method_decorator."
+        )
 
 
 def _matches_validate_only(field: str, patterns: list[str]) -> bool:
@@ -84,10 +108,10 @@ def _parse_request_data(
     if content_type == "multipart/form-data":
         if method == "POST":
             return request.POST, request.FILES
-        data, files = MultiPartParser(
-            request.META, request, request.upload_handlers, request.encoding
-        ).parse()
-        return data, files
+        # The exact parse Django's own POST path runs in
+        # ``HttpRequest._load_post_and_files`` — including core's
+        # ``ImmutableList`` upload-handler freeze.
+        return request.parse_file_upload(request.META, request)
     if _JSON_CONTENT_TYPE_RE.match(content_type):
         body = request.body
         if not body:
@@ -99,6 +123,10 @@ def _parse_request_data(
     if content_type == "application/x-www-form-urlencoded":
         if method == "POST":
             return request.POST, None
+        # Documented leniency: Django's POST path hardcodes utf-8 for
+        # urlencoded bodies (RFC 1866, ``_load_post_and_files``) and rejects
+        # other charsets with a 400; here the request's declared encoding is
+        # honored. Behavior change deferred.
         return QueryDict(request.body, encoding=request.encoding), None
     return (request.POST, request.FILES) if method == "POST" else ({}, None)
 
@@ -113,11 +141,16 @@ def _finalize_precognition_response(response: HttpResponse) -> HttpResponse:
 
 
 def _handle_precognitive_request(
-    request: HttpRequest, form_class: type[BaseForm]
+    request: HttpRequest,
+    form_class: type[BaseForm],
+    form_kwargs: FormKwargs | None = None,
 ) -> HttpResponse:
     try:
         data, files = _parse_request_data(request)
-    except ValueError:  # JSONDecodeError is a ValueError subclass
+    # The body is unreadable either way, so this answers with OUR JSON 400 —
+    # keeping the ``Precognition: true`` echo the client hard-requires —
+    # instead of Django's HTML 400 without it.
+    except _MALFORMED_BODY_ERRORS:
         _logger.warning(
             "precognition: malformed %s body on %s %s",
             request.content_type,
@@ -128,7 +161,11 @@ def _handle_precognitive_request(
             JsonResponse({"message": "Malformed request body."}, status=400)
         )
 
-    form = form_class(data=data, files=files or None)
+    form = form_class(
+        data=data,
+        files=files or None,
+        **(form_kwargs(request) if form_kwargs is not None else {}),
+    )
 
     only = validate_only_keys(request)
     if only:
@@ -151,10 +188,7 @@ def _handle_precognitive_request(
         response[PRECOGNITION_SUCCESS_HEADER] = "true"
         return _finalize_precognition_response(response)
 
-    errors = {
-        field: [str(message) for message in messages_]
-        for field, messages_ in form.errors.items()
-    }
+    errors = _normalize_errors(form)
     _logger.debug(
         "precognition: validation failed for %s %s fields=%s (validate_only=%s)",
         request.method,
@@ -167,44 +201,44 @@ def _handle_precognitive_request(
 
 def precognition(
     form_class: type[BaseForm],
+    *,
+    form_kwargs: FormKwargs | None = None,
 ) -> Callable[[ViewFunc[P]], ViewFunc[P]]:
     """Enables the v3 Precognition contract on a view via a Django ``Form``.
 
     Precognitive requests are answered without ever running the view body
     (mirroring Laravel's ``PrecognitionControllerDispatcher``); everything
-    else passes through, gaining ``Vary: Precognition``. Supports both sync
-    and async views (Django's own dual-wrapper decorator idiom) and is
-    ``method_decorator``-compatible.
+    else passes through, gaining ``Vary: Precognition``. Sync views only —
+    the shipped library is synchronous by design (async deployments are
+    served by gevent), so handing the decorator an ``async def`` view
+    raises ``TypeError`` at decoration time. ``method_decorator``-compatible.
+
+    ``form_kwargs`` mirrors Django's ``FormMixin.get_form_kwargs``: a
+    per-request callable whose mapping is splatted into the form
+    constructor, unblocking ``SetPasswordForm(user, …)``-style forms
+    (``form_kwargs=lambda r: {"user": r.user}``) and ModelForm update flows
+    (``form_kwargs=lambda r: {"instance": …}``).
     """
 
     def decorator(view_func: ViewFunc[P]) -> ViewFunc[P]:
         if iscoroutinefunction(view_func):
-            # iscoroutinefunction is a runtime guard, not a type narrower.
-            async_view = cast(
-                "Callable[Concatenate[HttpRequest, P], Awaitable[HttpResponse]]",
-                view_func,
+            raise TypeError(
+                "precognition() does not support async views: the library "
+                "is synchronous by design (serve async deployments with "
+                "gevent). Use a sync view."
             )
 
-            async def _view_wrapper(
-                request: HttpRequest, /, *args: P.args, **kwargs: P.kwargs
-            ) -> HttpResponse:
-                if is_precognitive(request):
-                    return _handle_precognitive_request(request, form_class)
-                response = await async_view(request, *args, **kwargs)
-                patch_vary_headers(response, (PRECOGNITION_HEADER,))
-                return response
+        @wraps(view_func)
+        def _view_wrapper(
+            request: HttpRequest, /, *args: P.args, **kwargs: P.kwargs
+        ) -> HttpResponse:
+            _check_request(request, "precognition")
+            if is_precognitive(request):
+                return _handle_precognitive_request(request, form_class, form_kwargs)
+            response = view_func(request, *args, **kwargs)
+            patch_vary_headers(response, (PRECOGNITION_HEADER,))
+            return response
 
-        else:
-
-            def _view_wrapper(
-                request: HttpRequest, /, *args: P.args, **kwargs: P.kwargs
-            ) -> HttpResponse:
-                if is_precognitive(request):
-                    return _handle_precognitive_request(request, form_class)
-                response = view_func(request, *args, **kwargs)
-                patch_vary_headers(response, (PRECOGNITION_HEADER,))
-                return response
-
-        return wraps(view_func)(_view_wrapper)  # pyrefly: ignore[bad-return]
+        return _view_wrapper
 
     return decorator

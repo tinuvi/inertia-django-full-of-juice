@@ -1,4 +1,5 @@
 from json import dumps, loads
+from typing import Any
 from unittest.mock import patch
 
 from django.template.loader import render_to_string as base_render_to_string
@@ -107,9 +108,9 @@ def inertia_page(
     encrypt_history: bool = False,
     clear_history: bool = False,
     preserve_fragment: bool = False,
-    flash=None,
-    shared_props=None,
-    rescued_props=None,
+    flash: dict[str, Any] | None = None,
+    shared_props: list[str] | None = None,
+    rescued_props: list[str] | None = None,
 ):
     props = props or {}
     template_data = template_data or {}

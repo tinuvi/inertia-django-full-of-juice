@@ -44,7 +44,7 @@ Everything this adapter speaks, with the **recommended approach** and the **E2E 
 | 🛟 `rescuedProps` / `defer(rescue=True)` | ✅ | `defer(…, rescue=True)` | [Rescuing failed deferred props](#rescuing-failed-deferred-props) | [`rescued-props`](playwright_e2e/tests/rescued-props.spec.ts) |
 | 💬 `flash` page field | ✅ | `flash(request, …)` · `INERTIA_FLASH_FROM_MESSAGES` bridge | [Flash data](#flash-data) | [`flash`](playwright_e2e/tests/flash.spec.ts) |
 
-> ℹ️ Every v3 surface is now built in; the only ⚠️ row left is CSRF alignment, a one-time naming decision that stays yours. The built-in validation-errors flow only fills `props.errors` when you didn't — shared or per-render `errors` props always win — so the hand-wired recipes that predate 0.5.0 keep working unchanged. The Django-messages recipe for toasts also still works as-is ([`flash-messages`](playwright_e2e/tests/flash-messages.spec.ts)); the `flash` page field and its optional contrib.messages bridge are additive.
+> ℹ️ Every v3 surface is now built in; the only ⚠️ row left is CSRF alignment, a one-time naming decision that stays yours. The built-in validation-errors flow only fills `props.errors` when you didn't — shared or per-render `errors` props always win — so the hand-wired recipes that predate 0.5.0 keep working unchanged. The Django-messages recipe for toasts also still works as-is ([`flash-messages`](playwright_e2e/tests/flash-messages.spec.ts)); the `flash` page field and its optional contrib.messages bridge are additive. The recipe's limits — multi-hop redirect chains, partial reloads, and history restore, each contrasted with `flash` surviving the identical flow — are pinned in [`messages-recipe`](playwright_e2e/tests/messages-recipe.spec.ts).
 
 ## Installation
 

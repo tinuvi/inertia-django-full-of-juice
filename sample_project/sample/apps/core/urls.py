@@ -36,4 +36,10 @@ urlpatterns = [
     path("flash-native/", views.flash_native_page, name="flash-native"),
     path("flash-native/save/", views.flash_native_save, name="flash-native-save"),
     path("rescue/", views.rescue_page, name="rescue"),
+    path("chain/link-messages/", views.chain_link_messages, name="chain-link-messages"),
+    path("chain/link-flash/", views.chain_link_flash, name="chain-link-flash"),
+    path("chain/gate/", views.chain_gate, name="chain-gate"),
+    path("chain/final/", views.chain_final, name="chain-final"),
+    path("chain/plant-message/", views.chain_plant_message, name="chain-plant-message"),
+    path("chain/plant-flash/", views.chain_plant_flash, name="chain-plant-flash"),
 ]

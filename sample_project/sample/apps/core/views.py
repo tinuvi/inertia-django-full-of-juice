@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from uuid import uuid4
 
 from django import forms
 from django.contrib import messages
@@ -185,6 +186,55 @@ def roster_page(request: HttpRequest) -> dict:
     # QuerySet passed straight through — InertiaJsonEncoder serializes each
     # row via the model's InertiaMeta.fields.
     return {"players": Player.objects.order_by("number")}
+
+
+# --- Consumer recipe chain ---------------------------------------------------
+# Mirrors the shapes a production consumer (tinuvi/onsen) runs: Django
+# messages drained eagerly into a `messages` shared prop by middleware
+# (ShareDemoMiddleware), an account-linking-style redirect that lands on a
+# gate which redirects again without rendering, and axios-style JSON
+# endpoints that queue state without ever rendering an Inertia page. The
+# messages-recipe spec pins where that recipe loses messages and how the v3
+# `flash` field survives the identical flows.
+
+
+def chain_link_messages(request: HttpRequest) -> HttpResponse:
+    # onsen's /callback/ shape: queue a Django message, then redirect into
+    # a gate. The eager recipe consumes the message at the gate hop.
+    messages.success(request, "Contas vinculadas com sucesso!")
+    return redirect("/chain/gate/")
+
+
+def chain_link_flash(request: HttpRequest) -> HttpResponse:
+    # The same chain shape with the v3 flash field: pull-at-render means
+    # intermediate hops that never render cannot consume it.
+    flash(request, toast={"text": "Contas vinculadas com sucesso!", "kind": "success"})
+    return redirect("/chain/gate/")
+
+
+def chain_gate(request: HttpRequest) -> HttpResponse:
+    # onsen's @subscription_required shape: an intermediate hop that
+    # redirects without rendering a page.
+    return redirect("/chain/final/")
+
+
+@inertia("Chain")
+def chain_final(request: HttpRequest) -> dict:
+    return {"stamp": str(uuid4())}
+
+
+@require_http_methods(["POST"])
+def chain_plant_message(request: HttpRequest) -> HttpResponse:
+    # onsen's latent axios pattern: a JSON endpoint queues a message but
+    # never renders — the message sits pending in the messages storage.
+    messages.success(request, "Pending toast")
+    return JsonResponse({"ok": True})
+
+
+@require_http_methods(["POST"])
+def chain_plant_flash(request: HttpRequest) -> HttpResponse:
+    flash(request, toast={"text": "Pending toast", "kind": "success"})
+    return JsonResponse({"ok": True})
 
 
 def redirect_fragment(request: HttpRequest) -> HttpResponse:

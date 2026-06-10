@@ -8,6 +8,7 @@ Imperative guidance for working on `inertia-django-full-of-juice`. Follow these 
 - Use parameterized logging only: `logger.info("Message %s", value)`. Do **not** pre-format log strings with f-strings, `%`, or `.format()`.
 - When you see `getLogger(__name__)`, change it to `getLogger("inertia_django_full_of_juice")`.
 - Keep new code typed. The package ships PEP 561 typing — type-hint anything you add or touch.
+- Never write `async def` / `await` in production code — the shipped library source (`inertia/`, excluding `inertia/tests/`). The package is synchronous by design; async deployments are served by [gevent](https://github.com/gevent/gevent). Do not add async branches to decorators or middleware even when mirroring Django's or Laravel's dual sync/async patterns; make decorators raise a `TypeError` when handed an async view. Tests are exempt (Playwright specs, async fixtures in `inertia/tests/` — e.g. the async view that pins the `TypeError` guard).
 
 ## Updating poetry settings
 

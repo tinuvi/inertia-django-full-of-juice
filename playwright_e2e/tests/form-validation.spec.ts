@@ -6,8 +6,9 @@ test.describe("Form — useForm validation flow", () => {
 
 		await page.getByRole("button", { name: "Submit" }).click();
 
-		// errors come back as an Inertia 200 with props.errors; the client keeps
-		// us on the Form component and renders them inline.
+		// `redirect_back(request, errors=…)` redirects to the referring page; the client
+		// follows and the next render pulls the flashed errors into
+		// props.errors, rendering them inline on the same component.
 		await expect(page.getByText("Name is required")).toBeVisible();
 		await expect(page.getByText("Email is invalid")).toBeVisible();
 		await expect(

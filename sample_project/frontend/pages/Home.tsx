@@ -47,6 +47,19 @@ export default function Home() {
 					</Link>
 				</li>
 				<li>
+					<Link href="/flash-native/">
+						Flash native (v3 flash page field + flash event)
+					</Link>
+				</li>
+				<li>
+					<Link href="/precognition/">Precognition (live form validation)</Link>
+				</li>
+				<li>
+					<Link href="/rescue/">
+						Rescue (defer(rescue=True) + Deferred rescue slot)
+					</Link>
+				</li>
+				<li>
 					<Link href="/roster/">
 						Roster (Model / QuerySet serialization via InertiaMeta)
 					</Link>

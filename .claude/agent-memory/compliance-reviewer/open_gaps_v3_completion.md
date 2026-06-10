@@ -1,0 +1,12 @@
+---
+name: open-gaps-v3-completion
+description: Open (non-accepted) findings from the 0.5.0 review — merge metadata leaks for rescued props; undocumented 400-vs-Laravel-422 on malformed precognitive bodies
+metadata:
+  type: project
+---
+
+Open findings from the 2026-06-10 review of `feat/v3-protocol-completion`. Re-check these on the next review of `inertia/http.py` / `inertia/precognition.py`; move to [[divergence-v3-completion-accepted]] if the team accepts them, delete if fixed.
+
+1. **SHOULD-FIX: merge metadata emitted for rescued props.** `build_merge_kinds()` (inertia/http.py) iterates `_all_props()` independently and never consults `self._rescued_props`, so `defer(..., merge=True, rescue=True)` that throws on a partial reload emits BOTH `mergeProps: [key]` and `rescuedProps: [key]`. Laravel omits the merge entry: `PropsResolver::resolveProps` hits `if (in_array($path, $this->rescuedProps)) continue;` BEFORE `collectMetadata()`. Harmless on the official 3.x client (response.ts `mergeProp()` no-ops on a path absent from incoming props), but wire-divergent. No test covers the merge+rescue combo anywhere (grep-verified).
+2. **SHOULD-FIX (docs): malformed precognitive body → 400.** `inertia/precognition.py` returns 400 `{"message": "Malformed request body."}` for malformed/non-object JSON. Laravel coerces malformed JSON to `[]` (`Illuminate/Http/Request::json`: `(array) json_decode($content ?: '[]', true)`) → 422 required-field errors. Unreachable via the official client (it serializes its own JSON; laravel-precognition has no 400 status handler — surfaces as a rejected promise). Defensible, but not flagged as a divergence in CHANGELOG/README/commit body, which the project rules require.
+3. **NIT cluster (recorded so they aren't re-derived):** 500s escaping the precognition decorator (e.g. `MultiPartParserError`, a crashing custom validator) lose the `Precognition` echo + `Vary` (Laravel's exception handler renders inside the stack, so its tap still decorates); no `withAllErrors` equivalent for full-array error emission; rescue is top-level-only (Laravel rescues any dot-path depth — consistent with the adapter's pre-existing top-level prop-class semantics); dotted `share()` keys yield a `sharedProps` first-segment entry that can never match a prop because Django doesn't dot-unpack props (pre-existing); `_resolve_session_errors` docstring says it "runs only when the view did not provide errors" but it always pops.

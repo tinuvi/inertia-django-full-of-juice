@@ -35,16 +35,16 @@ Everything this adapter speaks, with the **recommended approach** and the **E2E 
 | 🖥️ Server-side rendering (SSR) | ✅ | `INERTIA_SSR_ENABLED = True` | [SSR](#ssr) | [`ssr-exclusion`](playwright_e2e/tests-ssr/ssr-exclusion.spec.ts) |
 | 🚫 Per-route SSR opt-out | ✅ | `INERTIA_SSR_EXCLUDE = [r'^/admin/']` | [SSR](#ssr) | [`ssr-exclusion`](playwright_e2e/tests-ssr/ssr-exclusion.spec.ts) |
 | 🛡️ CSRF cookie/header alignment | ⚠️ | align names once (client `setClient` **or** Django settings) | [CSRF](#csrf) | [`form-validation`](playwright_e2e/tests/form-validation.spec.ts) |
-| 🧾 Validation errors (Inertia visits) | ⚠️ | redirect-back + `share(request, errors=…)` | [Validation errors & error bags](#validation-errors--error-bags) | [`form-validation`](playwright_e2e/tests/form-validation.spec.ts) |
-| 🧰 Error bags (multi-form scoping) | ⚠️ | read `X-Inertia-Error-Bag`, nest errors under it | [Validation errors & error bags](#validation-errors--error-bags) | [`error-bags`](playwright_e2e/tests/error-bags.spec.ts) |
+| 🧾 Validation errors (Inertia visits) | ✅ | `redirect_back(request, errors=form)` · `flash_errors(request, …)` | [Validation errors & error bags](#validation-errors--error-bags) | [`form-validation`](playwright_e2e/tests/form-validation.spec.ts) |
+| 🧰 Error bags (multi-form scoping) | ✅ ⚙️ | automatic — flashed errors nest under `X-Inertia-Error-Bag` | [Validation errors & error bags](#validation-errors--error-bags) | [`error-bags`](playwright_e2e/tests/error-bags.spec.ts) |
 | 🌐 `useHttp` validation (`422` shape) | ✅ | `errors_response(errors, message=…)` | [useHttp responses](#validation-responses-for-usehttp) | [`errors-response`](playwright_e2e/tests/errors-response.spec.ts) |
 | 🧪 Test assertions | ✅ | `InertiaTestCase` | [Testing](#testing) | — *(harness)* |
-| ⚡ Precognition (live form validation) | ❌ | not built in | [Inertia validation](https://inertiajs.com/validation) | — |
-| 🗂️ `sharedProps` page field | ❌ | n/a — client-tolerant | [v3 protocol](https://inertiajs.com/the-protocol) | [`home`](playwright_e2e/tests/home.spec.ts) *(pins absence)* |
-| 🛟 `rescuedProps` / `defer(rescue=True)` | ❌ | guard exceptions in the resolver yourself | [Deferred props](https://inertiajs.com/deferred-props) | [`home`](playwright_e2e/tests/home.spec.ts) *(pins absence)* |
-| 💬 `flash` page field | ❌ | use Django `messages` | [`contrib.messages`](https://docs.djangoproject.com/en/stable/ref/contrib/messages/) | [`flash-messages`](playwright_e2e/tests/flash-messages.spec.ts) *(recipe)* |
+| ⚡ Precognition (live form validation) | ✅ | `@precognition(FormClass)` decorator | [Precognition](#precognition-live-form-validation) | [`precognition`](playwright_e2e/tests/precognition.spec.ts) |
+| 🗂️ `sharedProps` page field | ✅ ⚙️ | automatic from `share()` · `INERTIA_EXPOSE_SHARED_PROP_KEYS` | [Shared Data](#shared-data) | [`home`](playwright_e2e/tests/home.spec.ts) |
+| 🛟 `rescuedProps` / `defer(rescue=True)` | ✅ | `defer(…, rescue=True)` | [Rescuing failed deferred props](#rescuing-failed-deferred-props) | [`rescued-props`](playwright_e2e/tests/rescued-props.spec.ts) |
+| 💬 `flash` page field | ✅ | `flash(request, …)` · `INERTIA_FLASH_FROM_MESSAGES` bridge | [Flash data](#flash-data) | [`flash`](playwright_e2e/tests/flash.spec.ts) |
 
-> ℹ️ The ❌ rows are genuinely absent today; the page-object omissions (`sharedProps`, `rescuedProps`, `flash`) are **client-tolerant** — their absence won't break an Inertia visit, and the [`home`](playwright_e2e/tests/home.spec.ts) spec pins that they are never emitted. Validation errors and error bags **are** supported — you just wire them yourself (the ⚠️ rows), by design, to stay out of Django's way; the sample project implements both recipes (plus the Django-messages replacement for `flash`), each proven by its linked spec. See [Validation errors & error bags](#validation-errors--error-bags).
+> ℹ️ Every v3 surface is now built in; the only ⚠️ row left is CSRF alignment, a one-time naming decision that stays yours. The built-in validation-errors flow only fills `props.errors` when you didn't — shared or per-render `errors` props always win — so the hand-wired recipes that predate 0.5.0 keep working unchanged. The Django-messages recipe for toasts also still works as-is ([`flash-messages`](playwright_e2e/tests/flash-messages.spec.ts)); the `flash` page field and its optional contrib.messages bridge are additive. The recipe's limits — multi-hop redirect chains, partial reloads, and history restore, each contrasted with `flash` surviving the identical flow — are pinned in [`messages-recipe`](playwright_e2e/tests/messages-recipe.spec.ts).
 
 ## Installation
 
@@ -180,6 +180,9 @@ def inertia_share(get_response):
     return get_response(request)
   return middleware
 ```
+
+Every response also lists the top-level keys you registered via `share()` in the page object's `sharedProps` field (here: `["app_name", "user_count", "user"]`). The v3 client uses that list to carry shared props over during [instant visits](https://inertiajs.com/instant-visits), mirroring Laravel's `expose_shared_prop_keys`. Set `INERTIA_EXPOSE_SHARED_PROP_KEYS = False` to omit it.
+
 ### Prop Serialization
 
 Unlike Rails and Laravel, Django does not handle converting objects to JSON by default so Inertia Django offers two different ways to handle prop serialization.
@@ -271,6 +274,30 @@ def example(request):
 ```
 
 In the example above, the `data1`, and `data2` props will be fetched in one request, while the `data` prop will be fetched in a separate request in parallel. Group names are arbitrary strings and can be anything you choose.
+
+#### Rescuing failed deferred props
+
+A deferred resolver that raises normally turns the whole deferred fetch into a 500. Pass `rescue=True` to rescue it instead, mirroring Laravel's `Inertia::defer(..., rescue: true)`: the exception is logged on the `inertia_django_full_of_juice` logger, the prop is dropped from `props`, and its key is emitted via the page object's `rescuedProps` field — which the client's `<Deferred>` component uses to render its `rescue` slot.
+
+```python
+from inertia import defer, inertia
+
+@inertia('ExampleComponent')
+def example(request):
+  return {
+    'stats': defer(lambda: flaky_stats_backend(), rescue=True),
+  }
+```
+
+```jsx
+<Deferred data="stats" fallback={<Spinner />} rescue={({ reloading }) => (
+  <button onClick={() => router.reload({ only: ['stats'] })} disabled={reloading}>
+    Couldn't load stats — retry
+  </button>
+)}>
+  <Stats stats={stats} />
+</Deferred>
+```
 
 ### Merge Props
 
@@ -417,45 +444,48 @@ def update(request):
 
 Additionally, `InertiaMiddleware` automatically converts any redirect response whose `Location` contains a `#fragment` (e.g. `redirect('/foo#section')`) on an Inertia request into a `409 + X-Inertia-Redirect`, so the v3 client honors the fragment without any extra work on your part.
 
-### Validation errors & error bags
+### Flash data
 
-The v3 protocol reserves an `errors` object on the page (`page.props.errors`). It defaults to `{}`, and the client treats a **non-empty** `errors` as "this request failed" — firing `onError` instead of `onSuccess`. This adapter always reserves that slot for you (it survives partial reloads, just like Laravel's `Inertia::always`), but — by design — it does **not** auto-populate it.
-
-This is intentional, not a missing feature. Laravel's adapter reads validation errors from the session on every request because the *Laravel framework* flashes them there (`back()->withErrors()`); Django has no equivalent convention, so forcing one would fight Django's idioms. We hand you a protocol-compliant wire and let you own the policy — plain forms, DRF serializers, generic CBVs, whatever you already use. (The official `inertia-django` adapter takes the same stance.)
-
-**Redirect-back-with-flashed-errors (the `useForm` / `router.post` path).** Flash the errors to the session on failure, redirect back, then re-share them on the next GET:
+`flash()` stores one-shot data in the session; the next Inertia render — full visit or partial reload — pulls it into the page object's top-level `flash` field, mirroring Laravel's `Inertia::flash()`. The client exposes it as `usePage().flash`, fires the global `flash` event (and any per-visit `onFlash` callback), and deliberately strips it from history state, so back/forward navigation never replays a stale toast.
 
 ```python
-from inertia import share
+from inertia import flash
 from django.shortcuts import redirect
 
-POSTED_ERRORS = "_inertia_errors"
+def update(request):
+    # ... save ...
+    flash(request, toast={"text": "Saved!", "kind": "success"})
+    return redirect("/settings/")
+```
+
+Flash data survives redirects (it is only consumed when a page actually renders) and even the `409` stale-asset refresh — `InertiaMiddleware` writes back whatever a discarded stale response had already consumed. That exceeds Laravel's `onVersionChange` reflash while satisfying the protocol's reflash mandate: Laravel's `Store::reflash()` only re-marks flash key names and cannot restore values its render already pulled. In mixed Inertia/classic apps, note that flashed state simply waits in the session for the next *Inertia* render — classic template responses don't consume it — bounded by session expiry, the same way unread `contrib.messages` wait for their next read.
+
+**Bridging `django.contrib.messages`.** If your flash messages already live in Django's messages framework, set `INERTIA_FLASH_FROM_MESSAGES = True` and every render drains them into `flash.messages` as `{message, level, tags, extra_tags, level_tag}` dicts — no middleware recipe needed, and because the drain happens at render time, partial reloads and multi-hop redirects can't consume a message without delivering it. `MessageMiddleware` must sit above `InertiaMiddleware` (the conventional order) so the storage is cleared on the way out. The hand-wired recipe of sharing messages as a regular prop keeps working if you prefer it; `messages` is a reserved `flash` key while the bridge is on.
+
+### Validation errors & error bags
+
+The v3 protocol reserves an `errors` object on the page (`page.props.errors`). It defaults to `{}`, and the client treats a **non-empty** `errors` as "this request failed" — firing `onError` instead of `onSuccess`. This adapter always reserves that slot for you (it survives partial reloads, just like Laravel's `Inertia::always`), and ships the Laravel-style redirect-back loop as helpers:
+
+```python
+from inertia import redirect_back
 
 def update(request):
     form = MyForm(request.POST)
     if not form.is_valid():
-        # first message per field — matches what the client's form.errors expects
-        request.session[POSTED_ERRORS] = {f: e[0] for f, e in form.errors.items()}
-        return redirect(request.META.get("HTTP_REFERER", "/settings"))
+        return redirect_back(request, errors=form, fallback="/settings/")
     # ... handle valid form ...
-    return redirect("/settings")
+    return redirect("/settings/")
 ```
 
-```python
-# in your own middleware (or a base view / mixin), on the way into the view:
-if errors := request.session.pop(POSTED_ERRORS, None):
-    share(request, errors=errors)
-```
+`redirect_back()` flashes the errors to the session (accepting a bound `Form` or a `{field: message(s)}` mapping) and redirects to the validated `Referer` (falling back to `fallback`, which runs through `django.shortcuts.resolve_url` so URL names work alongside literal paths; unlike Laravel's `back()` the referrer is checked with Django's `url_has_allowed_host_and_scheme`, so the header can't produce an open redirect). The next render pulls them into `props.errors` — first message per field, exactly what the client's `form.errors` expects. Non-field errors (from a form's `clean()`) arrive under Django's literal `__all__` key, matching `errors.get_json_data()`. Each `flash_errors()` / `redirect_back(errors=…)` call **replaces** any errors already flashed — Django form errors are a per-run snapshot of the whole submission, the same wholesale replace as Laravel's `withErrors`. To keep a custom redirect, call `flash_errors(request, errors)` yourself and return any response you like. `InertiaMiddleware` already upgrades `PUT`/`PATCH`/`DELETE` redirects to `303`, so the follow-up request is a `GET` that renders the flashed errors.
 
-`InertiaMiddleware` already upgrades `PUT`/`PATCH`/`DELETE` redirects to `303` for you, so the follow-up request is a `GET` that carries the flashed errors.
+**Error bags are handled automatically.** When a form sets the `errorBag` option, the client sends the `X-Inertia-Error-Bag` header (and re-sends it while following the redirect); the render nests the flashed errors under that bag name (`errors.createUser.email`), so two forms on one page never see each other's errors.
 
-For the simpler same-route case (POST and re-render on the same view), skip the session entirely and pass `errors` straight to `render`:
+Your own policy still wins: the session flow only fills `props.errors` when the render received no `errors` prop, so passing `errors` to `render()` or sharing it from middleware overrides the built-in flow. For the simpler same-route case (POST and re-render on the same view), skip the session entirely:
 
 ```python
 return render(request, "Settings/Edit", {"errors": {f: e[0] for f, e in form.errors.items()}})
 ```
-
-**Error bags are not handled automatically.** If you put two forms on one page and want Laravel-style scoping (`errors.createUser.email`), read the `X-Inertia-Error-Bag` request header yourself and nest the errors under its value — the client sends that header when a form sets the `errorBag` option, and reads errors back from `errors[<bag>]`. For the common single-form case you don't need any of this; a flat `{field: message}` map is enough.
 
 ### Validation responses for `useHttp`
 
@@ -472,7 +502,44 @@ def submit(request):
     # ... handle valid form ...
 ```
 
-`errors_response()` is specifically for the `useHttp` hook. For regular Inertia visits (form submissions through `useForm` / `router.post`), use the redirect-back-with-flashed-errors pattern in [Validation errors & error bags](#validation-errors--error-bags) above instead.
+`errors_response()` is specifically for the `useHttp` hook. For regular Inertia visits (form submissions through `useForm` / `router.post`), use `redirect_back(request, errors=…)` from [Validation errors & error bags](#validation-errors--error-bags) above instead.
+
+### Precognition (live form validation)
+
+The v3 client validates forms *as the user types* by replaying the form data to the server with a `Precognition: true` header (plus `Precognition-Validate-Only` listing the touched fields). In the Laravel ecosystem this is a framework feature, not an adapter one — here it ships as a per-view decorator, the Django equivalent of Laravel's `precognitive` middleware alias:
+
+```python
+from django import forms
+from inertia import precognition
+
+class SignupForm(forms.Form):
+    name = forms.CharField(max_length=12)
+    email = forms.EmailField()
+
+@precognition(SignupForm)
+def signup(request):
+    # Precognitive requests never reach this body — the decorator answers
+    # them. Real submits run the view as usual.
+    ...
+```
+
+```jsx
+const form = useForm('post', '/signup/', { name: '', email: '' })
+// <input onBlur={() => form.validate('email')} … />
+// form.validating · form.valid('email') · form.invalid('email') · form.errors.email
+```
+
+The decorator implements the wire contract the client hard-requires: validation success → `204 No Content` with `Precognition-Success: true`; failure → `422` with `{"message": …, "errors": {field: [messages]}}`; every response — precognitive or not — carries `Vary: Precognition` and precognitive ones echo `Precognition: true` (without that header the client throws `"Did not receive a Precognition response"`). `Precognition-Validate-Only` scoping pops the unlisted fields off the form *instance* before validation — Django's sanctioned way to restrict a form — so untouched required fields never false-error and their validators never run; `*` in a pattern matches one dot segment, like Laravel. One consequence for cross-field validation: popped fields are absent from `cleaned_data`, so your `clean()` must read them with `.get()` (the documented Django contract), and `add_error()` on a popped field raises. Request bodies are parsed the way the client sends them: JSON by default, query params for `GET`/`DELETE`, `multipart/form-data` when file validation is enabled. The decorator is sync-only by design — the library targets synchronous Django (serve async deployments with [gevent](https://github.com/gevent/gevent)), so an `async def` view raises `TypeError` at decoration time; ORM-backed forms (`ModelForm`, `ModelChoiceField`) validate as usual on the synchronous path. It is `method_decorator`-compatible for CBVs. `is_precognitive(request)` and `validate_only_keys(request)` are exported for hand-rolled flows (e.g. DRF serializers).
+
+Forms that need extra constructor arguments — `SetPasswordForm(user, …)`, a `ModelForm` updating an `instance` — take them via `form_kwargs`, a per-request callable mirroring Django's `FormMixin.get_form_kwargs`:
+
+```python
+@precognition(SetPasswordForm, form_kwargs=lambda request: {"user": request.user})
+def change_password(request):
+    ...
+```
+
+**Malformed bodies are a deliberate Django-idiom divergence.** An unparseable envelope (broken JSON, a non-object JSON body, a corrupt multipart payload) returns a `400` JSON `{"message": "Malformed request body."}` — still echoing `Precognition: true` — rather than Laravel's behavior of coercing the unparseable body to an empty payload and answering `422` (for JSON via `Request::json`'s swallowed decode failure; for multipart via PHP's native form parsing). Django core's stance is that an unreadable envelope is an explicit `400` (`MultiPartParserError` → `400` in `django/core/handlers/exception.py`), and we follow it. The v3 client has no `400` status hook, so a malformed body surfaces as a rejected promise either way — the `Precognition: true` echo doesn't make the client *handle* the `400`; it makes the rejection truthful (`HTTP error 400`, with this JSON reachable at `error.response.data`) instead of the misleading "Did not receive a Precognition response" error.
 
 ### Json Encoding
 
@@ -570,6 +637,8 @@ INERTIA_SSR_URL = 'http://localhost:13714' # defaults to http://localhost:13714
 INERTIA_SSR_ENABLED = False # defaults to False
 INERTIA_SSR_EXCLUDE = [r'^/admin/'] # defaults to []; regex patterns matched (re.search) against request.path — matching paths skip SSR
 INERTIA_ENCRYPT_HISTORY = False # defaults to False
+INERTIA_EXPOSE_SHARED_PROP_KEYS = True # defaults to True; emit the sharedProps page field listing share() keys (instant visits)
+INERTIA_FLASH_FROM_MESSAGES = False # defaults to False; drain django.contrib.messages into flash.messages at render time
 ```
 
 ### Asset versioning (`INERTIA_VERSION`)

@@ -12,6 +12,8 @@ Audit of `inertia/tests/` + `playwright_e2e/` against [[v3-protocol-surface]].
 **Why:** asked to find what is MISSING from the test suite, not a general overview.
 **How to apply:** these are protocol surfaces with no test or no implementation; revisit before claiming 100% v3 coverage.
 
+**UPDATE 2026-06-10:** branch `feat/v3-protocol-completion` (35cbfa1 + 7475a91) implements the entire "Unimplemented" list below (rescuedProps, sharedProps, X-Inertia-Error-Bag, Precognition) with unit + E2E specs; wire conformance re-verified against laravel-precognition@2.0.0 and inertia client v3.3.1. The list is historical once that branch merges.
+
 ## Unimplemented in the library (spec features absent from source)
 - `rescuedProps[]` page-object field + `defer(rescue=True)` deferred-prop rescue — no source, no test. Client defaults to [] so omission is benign, but the rescue feature is absent.
 - `sharedProps[]` page-object field — `share()` exists but the key is never emitted; client uses it for instant-visit carry-over.

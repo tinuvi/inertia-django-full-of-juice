@@ -43,10 +43,12 @@ component, props (always incl errors:{}), url, version — always.
 Only-when-set: encryptHistory(true), clearHistory(true), preserveFragment(true),
 mergeProps[], prependProps[], deepMergeProps[], matchPropsOn[], scrollProps{},
 deferredProps{}, rescuedProps[], sharedProps[], onceProps{}.
+- PLUS `flash{}` — carried in the page-object JSON but MISSING from the protocol page's field table (doc gap); client Page type requires it, defaults `data.flash ?? {}` (response.ts L132). Details: [[flash-shared-rescued]].
 - onceProps entry: `{key: {prop: name, expiresAt: ms|null}}`. Client type confirms: `onceProps?: Record<string, {prop: keyof PageProps; expiresAt?: number|null}>` (packages/core/src/types.ts ~L246-252, branch 3.x). Django lib matches exactly.
 - scrollProps entry: spec JSON example shows only `{pageName, previousPage, nextPage, currentPage}` (the-protocol.mdx "Page Object with Scroll Props"), BUT the 3.x client TYPE *requires* `reset: boolean` — `export type ScrollProp = { pageName; previousPage; nextPage; currentPage; reset: boolean }` (packages/core/src/types.ts ~L208-214, branch 3.x). And the client READS it: `infiniteScroll/data.ts` `router.on('success', ...)` calls `resetState()` when `getScrollPropFromCurrentPage().reset` is truthy. RESOLVED: Django lib emitting `reset` is CORRECT per client; the spec example is simply incomplete (spec-vs-client doc gap, not a Django divergence). Earlier memory note flagging `reset` as a Django-only addition was WRONG.
-- rescuedProps[] — deferred props with rescue:true that threw; omitted from props, key listed here. Client renders <Deferred> rescue slot. Client defaults to [] when omitted (`packages/core/src/page.ts`, `response.ts`: `rescuedProps: data.rescuedProps ?? []`).
-- sharedProps[] — top-level keys from Inertia::share(); client carries them over on instant visits (`packages/core/src/router.ts`).
+- rescuedProps[] — deferred props with rescue:true that threw; omitted from props, key listed here. Client renders <Deferred> rescue slot. Client defaults to [] when omitted (`packages/core/src/page.ts` L35, `response.ts` L132). Shipped in client v3.1.0 (absent at tag v3.0.0). Partial-reload merge: response.ts mergeRescuedProps L444-455. Details: [[flash-shared-rescued]].
+- sharedProps[] — top-level keys from Inertia::share(); client carries them over ONLY for instant visits (`packages/core/src/router.ts` performInstantSwap L613-649). Laravel can disable emission via `expose_shared_prop_keys`. Details: [[flash-shared-rescued]].
+- Precognition validate requests are NOT Inertia requests (no X-Inertia; sent by laravel-precognition v2 fetch client). Full contract: [[precognition]].
 
 ## Status codes
 - 200 — standard.

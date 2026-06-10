@@ -5,7 +5,15 @@ from django.contrib import messages
 from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import get_token
 
-from .http import inertia_redirect, location
+from .http import (
+    INERTIA_SESSION_CLEAR_HISTORY,
+    INERTIA_SESSION_ERRORS,
+    INERTIA_SESSION_FLASH,
+    INERTIA_SESSION_PRESERVE_FRAGMENT,
+    inertia_redirect,
+    is_inertia,
+    location,
+)
 from .settings import resolve_inertia_version
 
 FRAGMENT_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
@@ -60,7 +68,7 @@ class InertiaMiddleware:
                 client_version,
                 resolve_inertia_version(),
             )
-            return self.force_refresh(request)
+            return self.force_refresh(request, response)
 
         return response
 
@@ -74,7 +82,7 @@ class InertiaMiddleware:
         ]
 
     def is_inertia_request(self, request: HttpRequest) -> bool:
-        return "X-Inertia" in request.headers
+        return is_inertia(request)
 
     def is_redirect_request(self, response: HttpResponse) -> bool:
         return response.status_code in [301, 302]
@@ -94,9 +102,64 @@ class InertiaMiddleware:
     def is_stale_inertia_get(self, request: HttpRequest) -> bool:
         return request.method == "GET" and self.is_stale(request)
 
-    def force_refresh(self, request: HttpRequest) -> HttpResponse:
+    def force_refresh(
+        self, request: HttpRequest, response: HttpResponse | None = None
+    ) -> HttpResponse:
         # If the storage middleware is not defined, get_messages returns an empty list
         storage = messages.get_messages(request)
         if not isinstance(storage, list):
             storage.used = False
+        self.reflash_one_shot_state(request, response)
         return location(request.build_absolute_uri())
+
+    def reflash_one_shot_state(
+        self, request: HttpRequest, response: HttpResponse | None
+    ) -> None:
+        """Restores one-shot session state consumed by the discarded response.
+
+        The stale-version 409 throws away a fully rendered page, so anything
+        ``page_data`` already popped from the session (flash data, validation
+        errors, the clearHistory / preserveFragment flags) would silently die
+        with it. The rendered response stashes what it pulled, and we write it
+        back so the client's follow-up hard reload still delivers it. This
+        exceeds Laravel's ``Middleware::onVersionChange`` reflash, satisfying
+        the protocol's reflash mandate: Laravel's ``Store::reflash()`` only
+        re-marks flash key *names*, and cannot restore values the render
+        already pulled (``ResponseFactory::pullFlashed`` keeps no stash).
+        """
+        pulled_flash = getattr(response, "_pulled_flash", None)
+        if pulled_flash:
+            current_flash = request.session.get(INERTIA_SESSION_FLASH, {})
+            if not isinstance(current_flash, dict):
+                current_flash = {}
+            request.session[INERTIA_SESSION_FLASH] = {**pulled_flash, **current_flash}
+            _logger.debug(
+                "force_refresh: re-flashed %d flash key(s) consumed by the discarded stale response",
+                len(pulled_flash),
+            )
+
+        pulled_errors = getattr(response, "_pulled_errors", None)
+        if pulled_errors:
+            current_errors = request.session.get(INERTIA_SESSION_ERRORS, {})
+            if not isinstance(current_errors, dict):
+                current_errors = {}
+            request.session[INERTIA_SESSION_ERRORS] = {
+                **pulled_errors,
+                **current_errors,
+            }
+            _logger.debug(
+                "force_refresh: re-flashed validation errors for fields=%s consumed by the discarded stale response",
+                sorted(pulled_errors.keys()),
+            )
+
+        if getattr(response, "_pulled_clear_history", False):
+            request.session[INERTIA_SESSION_CLEAR_HISTORY] = True
+            _logger.debug(
+                "force_refresh: re-flashed one-shot clearHistory flag consumed by the discarded stale response"
+            )
+
+        if getattr(response, "_pulled_preserve_fragment", False):
+            request.session[INERTIA_SESSION_PRESERVE_FRAGMENT] = True
+            _logger.debug(
+                "force_refresh: re-flashed one-shot preserveFragment flag consumed by the discarded stale response"
+            )

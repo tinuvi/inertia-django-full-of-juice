@@ -4,7 +4,7 @@ from . import views
 
 urlpatterns = [
     path("test/", views.test),
-    path("empty/", views.empty_test),
+    path("empty/", views.empty_test, name="empty-route"),
     path("redirect/", views.redirect_test),
     path("props/", views.props_test),
     path("template_data/", views.template_data_test),
@@ -75,4 +75,31 @@ urlpatterns = [
     path("date-prop/", views.date_prop_test),
     path("render-helper-with-props/", views.render_helper_with_props_test),
     path("string-callable-props/", views.string_callable_props_test),
+    # v3 flash page field
+    path("flash-set/", views.flash_set_and_render_test),
+    path("flash-accumulate/", views.flash_accumulate_test),
+    path("flash-redirect/", views.flash_redirect_test),
+    path("flash-type-error/", views.flash_type_error_test),
+    path("flash-messages-bridge/", views.flash_messages_bridge_test),
+    path("flash-messages-lazy-bridge/", views.flash_messages_lazy_bridge_test),
+    # built-in validation-errors flow
+    path("back-dict-errors/", views.back_with_dict_errors_test),
+    path("back-form-errors/", views.back_with_form_errors_test),
+    path("back-plain/", views.back_plain_test),
+    path("back-named-fallback/", views.back_named_fallback_test),
+    path("flash-errors-only/", views.flash_errors_only_test),
+    # precognition
+    path("precog/", views.precog_test),
+    path("precog-upload/", views.precog_upload_test),
+    path("precog-orm/", views.precog_orm_test),
+    path("precog-form-kwargs/", views.precog_form_kwargs_test),
+    path("precog-cross-field/", views.precog_cross_field_test),
+    path("precog-cbv/", views.PrecogCBV.as_view()),
+    # rescuable deferred props
+    path("defer-rescue/", views.defer_rescue_test),
+    path("defer-no-rescue/", views.defer_no_rescue_test),
+    path("defer-rescue-after-ok/", views.defer_rescue_after_ok_test),
+    path("defer-rescue-merge/", views.defer_rescue_merge_test),
+    # sharedProps
+    path("share-dotted/", views.share_dotted_key_test),  # type: ignore[arg-type]
 ]

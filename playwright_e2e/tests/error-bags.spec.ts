@@ -11,15 +11,30 @@ test.describe("Bags — error bags scope two forms on one page", () => {
 				r.url().endsWith("/bags/newsletter/") &&
 				r.request().method() === "POST",
 		);
+		const followUp = page.waitForResponse(
+			(r) =>
+				new URL(r.url()).pathname === "/bags/" &&
+				r.request().method() === "GET",
+		);
 		await page.getByRole("button", { name: "Subscribe" }).click();
 		const response = await submit;
 
-		// Wire: the POST carries the bag name…
+		// Wire: the POST carries the bag name and `redirect_back()` answers with a
+		// redirect after flashing the errors to the session…
 		expect(response.request().headers()["x-inertia-error-bag"]).toBe(
 			"newsletter",
 		);
-		// …and the view nests the errors under it (the README recipe).
-		const pageObject = await response.json();
+		expect(response.status()).toBe(302);
+
+		// …the browser re-sends the bag header while following the redirect,
+		// and the built-in errors flow nests the flashed errors under it.
+		// (allHeaders(): plain headers() only reports provisional headers on
+		// redirect-followed requests and omits custom ones.)
+		const followed = await followUp;
+		expect((await followed.request().allHeaders())["x-inertia-error-bag"]).toBe(
+			"newsletter",
+		);
+		const pageObject = await followed.json();
 		expect(pageObject.props.errors).toEqual({
 			newsletter: { email: "Email is invalid" },
 		});

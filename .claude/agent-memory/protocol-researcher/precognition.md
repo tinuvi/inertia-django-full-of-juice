@@ -27,5 +27,11 @@ Spec: https://inertiajs.com/docs/v3/core-concepts/the-protocol (Request Headers 
 - Status handlers map 401/403/404/409(onConflict)/422/423 (client.ts L263-271). NO 419 handler. fetchClient has no redirect option ⇒ fetch default follows 3xx; followed response w/o Precognition header ⇒ throws. Client never reads `Vary` or any echoed Validate-Only response header.
 - 422 + cancelled errors are swallowed by the debounced runner; everything else (incl. the missing-header Error) rejects (validator.ts L247-275).
 
+## Unhandled 4xx path (verified at tag v2.0.0, the version the E2E sample resolves)
+- fetchHttpClient throws `HttpResponseError` on ANY `!response.ok` (fetchClient.ts `if (!response.ok) throw new HttpResponseError(httpResponse)`), so a 400 always takes client.ts request()'s REJECTED handler; `parseHeaders` lowercases all response-header names (`headers.precognition`).
+- Rejected handler order: `isNotServerGeneratedError` check → **`validatePrecognitionResponse(httpError.response)` BEFORE `resolveStatusHandler` dispatch** → unmapped status falls back to `(_, error) => Promise.reject(error)`.
+- ⇒ a server 400 WITH `Precognition: true` rejects with the truthful `HttpResponseError('HTTP error 400')` (JSON body on `error.response.data`); WITHOUT the echo it rejects with the misleading `'Did not receive a Precognition response…'` Error thrown inside the handler. The echo is load-bearing for error identity, NOT for control flow — both outcomes reject; there is no 400 status hook.
+- Fulfilled path validates the header before status dispatch too (client.ts `.then` first statement).
+
 ## Client triggers (react, 3.x)
 - `useForm(method, url, data)` / `useForm(wayfinder, data)` (core/useFormUtils.ts parseUseFormArguments L48-96) or `.withPrecognition(...)`; `<Form>` ALWAYS calls `useForm({}).withPrecognition(() => resolvedMethod, () => url).setValidationTimeout(validationTimeout)` (react/Form.ts L93-99; validationTimeout default 1500, validateFiles default false); `useHttp` exposes the same `withPrecognition`/`validate` (react/useHttp.ts L71, L155-160). All funnel into `createValidator((client)=>client[method](url, transformedData))` (react/useFormState.ts L384-392). No request until `validate()`/`touch()+validate()` is called — a non-precognition server is safe if validate() is never invoked.

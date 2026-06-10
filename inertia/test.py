@@ -107,6 +107,9 @@ def inertia_page(
     encrypt_history: bool = False,
     clear_history: bool = False,
     preserve_fragment: bool = False,
+    flash=None,
+    shared_props=None,
+    rescued_props=None,
 ):
     props = props or {}
     template_data = template_data or {}
@@ -148,6 +151,15 @@ def inertia_page(
 
     if scroll_props is not None:
         _page["scrollProps"] = scroll_props
+
+    if flash is not None:
+        _page["flash"] = flash
+
+    if shared_props is not None:
+        _page["sharedProps"] = shared_props
+
+    if rescued_props is not None:
+        _page["rescuedProps"] = rescued_props
 
     return _page
 

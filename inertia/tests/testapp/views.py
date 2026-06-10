@@ -1,13 +1,20 @@
 from datetime import date, datetime, timedelta, timezone
 
+from django import forms
+from django.contrib import messages as django_messages
 from django.http.response import HttpResponse
 from django.shortcuts import redirect
 from django.utils.decorators import decorator_from_middleware
 
 from inertia import (
+    back,
+    clear_history,
     deep_merge,
     defer,
+    encrypt_history,
     errors_response,
+    flash,
+    flash_errors,
     inertia,
     inertia_redirect,
     infinite_scroll,
@@ -16,6 +23,7 @@ from inertia import (
     merge,
     once,
     optional,
+    precognition,
     prepend,
     preserve_fragment,
     render,
@@ -23,9 +31,8 @@ from inertia import (
 )
 from inertia.http import (
     INERTIA_SESSION_CLEAR_HISTORY,
+    INERTIA_SESSION_FLASH,
     INERTIA_SESSION_PRESERVE_FRAGMENT,
-    clear_history,
-    encrypt_history,
 )
 
 
@@ -625,3 +632,146 @@ def string_callable_props_test(request):
     # Plain strings that share a name with a builtin callable must be sent
     # verbatim, never invoked (a str is not callable in Python).
     return {"first": "date", "second": "trim"}
+
+
+# --- v3 flash page field ---------------------------------------------------
+
+
+@inertia("TestComponent")
+def flash_set_and_render_test(request):
+    flash(request, toast="Saved!")
+    return {}
+
+
+@inertia("TestComponent")
+def flash_accumulate_test(request):
+    flash(request, toast="Saved!")
+    flash(request, banner="Welcome", toast="Replaced!")
+    return {}
+
+
+@inertia("TestComponent")
+def flash_redirect_test(request):
+    flash(request, toast="Saved!")
+    return redirect(empty_test)
+
+
+@inertia("TestComponent")
+def flash_type_error_test(request):
+    request.session[INERTIA_SESSION_FLASH] = "foo"
+    return {}
+
+
+@inertia("TestComponent")
+def flash_messages_bridge_test(request):
+    django_messages.success(request, "It worked!", extra_tags="billing")
+    return {}
+
+
+# --- built-in validation-errors flow ----------------------------------------
+
+
+class GuestForm(forms.Form):
+    name = forms.CharField(max_length=10)
+    email = forms.EmailField()
+
+
+def back_with_dict_errors_test(request):
+    return back(request, errors={"name": ["Required", "Too short"], "email": "Invalid"})
+
+
+def back_with_form_errors_test(request):
+    form = GuestForm(data={"name": "x" * 20, "email": "nope"})
+    form.is_valid()
+    return back(request, errors=form)
+
+
+def back_plain_test(request):
+    return back(request, fallback="/empty/")
+
+
+def flash_errors_only_test(request):
+    flash_errors(request, {"name": "Required"})
+    return redirect(empty_test)
+
+
+# --- precognition -------------------------------------------------------------
+
+
+class PrecogForm(forms.Form):
+    name = forms.CharField(max_length=5)
+    email = forms.EmailField()
+    age = forms.IntegerField(min_value=18)
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get("name") == "admin":
+            self.add_error(None, "Reserved name")
+        return cleaned
+
+
+@precognition(PrecogForm)
+@inertia("TestComponent")
+def precog_test(request):
+    return {"submitted": True}
+
+
+@precognition(PrecogForm)
+async def precog_async_test(request):
+    return HttpResponse("async ok")
+
+
+class PrecogUploadForm(forms.Form):
+    avatar = forms.FileField()
+
+
+@precognition(PrecogUploadForm)
+def precog_upload_test(request):
+    return HttpResponse("upload ok")
+
+
+@decorator_from_middleware(ShareMiddleware)
+@inertia("TestComponent")
+def share_dotted_key_test(request):
+    # share() takes kwargs, so dotted keys can only arrive via direct registry
+    # writes — pin that sharedProps reduces them to their FIRST dot segment
+    # (multi-dot keys included), deduped, mirroring Laravel's
+    # resolveSharedProps.
+    request.inertia.props["auth.user"] = "Brandon"
+    request.inertia.props["auth.flags"] = []
+    request.inertia.props["auth.profile.name"] = "B"
+    return {}
+
+
+# --- rescuable deferred props ---------------------------------------------
+
+
+def _explode():
+    raise RuntimeError("boom")
+
+
+@inertia("TestComponent")
+def defer_rescue_test(request):
+    return {
+        "name": "Brandon",
+        "stats": defer(_explode, rescue=True),
+        "teams": defer(lambda: ["Bulls"]),
+    }
+
+
+@inertia("TestComponent")
+def defer_no_rescue_test(request):
+    return {
+        "name": "Brandon",
+        "stats": defer(_explode),
+    }
+
+
+@inertia("TestComponent")
+def defer_rescue_after_ok_test(request):
+    # A healthy deferred prop declared BEFORE the rescuable one — pins that
+    # the rescue scan keeps walking past non-rescuable props.
+    return {
+        "teams": defer(lambda: ["Bulls"]),
+        "stats": defer(_explode, rescue=True),
+    }

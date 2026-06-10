@@ -169,3 +169,132 @@ class ForceRefreshReflashTestCase(InertiaTestCase):
         InertiaMiddleware(lambda r: HttpResponse()).force_refresh(request)
 
         self.assertFalse(get_messages(request).used)
+
+    def _request_with_session(self):
+        request = RequestFactory().get("/empty/")
+        SessionMiddleware(lambda r: HttpResponse()).process_request(request)
+        MessageMiddleware(lambda r: HttpResponse()).process_request(request)
+        return request
+
+    def test_force_refresh_restores_flash_consumed_by_the_discarded_response(self):
+        from inertia.http import INERTIA_SESSION_FLASH
+
+        request = self._request_with_session()
+        discarded = HttpResponse()
+        discarded._pulled_flash = {"toast": "Pending"}
+
+        InertiaMiddleware(lambda r: HttpResponse()).force_refresh(request, discarded)
+
+        self.assertEqual(request.session[INERTIA_SESSION_FLASH], {"toast": "Pending"})
+
+    def test_reflash_keeps_newer_flash_values_written_after_the_pull(self):
+        from inertia.http import INERTIA_SESSION_FLASH
+
+        request = self._request_with_session()
+        request.session[INERTIA_SESSION_FLASH] = {"toast": "Newer"}
+        discarded = HttpResponse()
+        discarded._pulled_flash = {"toast": "Older", "banner": "Hi"}
+
+        InertiaMiddleware(lambda r: HttpResponse()).force_refresh(request, discarded)
+
+        self.assertEqual(
+            request.session[INERTIA_SESSION_FLASH],
+            {"toast": "Newer", "banner": "Hi"},
+        )
+
+    def test_reflash_discards_corrupted_current_flash_state(self):
+        from inertia.http import INERTIA_SESSION_FLASH
+
+        request = self._request_with_session()
+        request.session[INERTIA_SESSION_FLASH] = "corrupted"
+        discarded = HttpResponse()
+        discarded._pulled_flash = {"toast": "Pending"}
+
+        InertiaMiddleware(lambda r: HttpResponse()).force_refresh(request, discarded)
+
+        self.assertEqual(request.session[INERTIA_SESSION_FLASH], {"toast": "Pending"})
+
+    def test_force_refresh_restores_errors_consumed_by_the_discarded_response(self):
+        from inertia.http import INERTIA_SESSION_ERRORS
+
+        request = self._request_with_session()
+        request.session[INERTIA_SESSION_ERRORS] = "corrupted"
+        discarded = HttpResponse()
+        discarded._pulled_errors = {"name": ["Required"]}
+
+        InertiaMiddleware(lambda r: HttpResponse()).force_refresh(request, discarded)
+
+        self.assertEqual(
+            request.session[INERTIA_SESSION_ERRORS], {"name": ["Required"]}
+        )
+
+    def test_one_shot_history_flags_survive_the_409_refresh(self):
+        from inertia.http import (
+            INERTIA_SESSION_CLEAR_HISTORY,
+            INERTIA_SESSION_PRESERVE_FRAGMENT,
+        )
+
+        request = self._request_with_session()
+        discarded = HttpResponse()
+        discarded._pulled_clear_history = True
+        discarded._pulled_preserve_fragment = True
+
+        InertiaMiddleware(lambda r: HttpResponse()).force_refresh(request, discarded)
+
+        self.assertTrue(request.session[INERTIA_SESSION_CLEAR_HISTORY])
+        self.assertTrue(request.session[INERTIA_SESSION_PRESERVE_FRAGMENT])
+
+    def test_a_plain_response_without_stashes_reflashes_nothing(self):
+        # A stale GET to a non-Inertia view discards a plain HttpResponse
+        # that never pulled session state — force_refresh must not fabricate
+        # flash/errors/history flags from getattr defaults.
+        from inertia.http import (
+            INERTIA_SESSION_CLEAR_HISTORY,
+            INERTIA_SESSION_ERRORS,
+            INERTIA_SESSION_FLASH,
+            INERTIA_SESSION_PRESERVE_FRAGMENT,
+        )
+
+        request = self._request_with_session()
+        plain = HttpResponse("not an inertia render")
+
+        InertiaMiddleware(lambda r: HttpResponse()).force_refresh(request, plain)
+
+        self.assertNotIn(INERTIA_SESSION_CLEAR_HISTORY, request.session)
+        self.assertNotIn(INERTIA_SESSION_PRESERVE_FRAGMENT, request.session)
+        self.assertNotIn(INERTIA_SESSION_FLASH, request.session)
+        self.assertNotIn(INERTIA_SESSION_ERRORS, request.session)
+
+
+class HistoryFlagsStaleRefreshEndToEndTestCase(InertiaTestCase):
+    def test_clear_history_flag_survives_a_stale_version_refresh(self):
+        from inertia.http import INERTIA_SESSION_CLEAR_HISTORY
+
+        session = self.inertia.session
+        session[INERTIA_SESSION_CLEAR_HISTORY] = True
+        session.save()
+
+        stale = self.inertia.get("/empty/", HTTP_X_INERTIA_VERSION="stale")
+
+        self.assertEqual(stale.status_code, 409)
+        self.assertTrue(self.inertia.session[INERTIA_SESSION_CLEAR_HISTORY])
+
+        fresh = self.inertia.get("/empty/")
+
+        self.assertTrue(fresh.json()["clearHistory"])
+
+    def test_preserve_fragment_flag_survives_a_stale_version_refresh(self):
+        from inertia.http import INERTIA_SESSION_PRESERVE_FRAGMENT
+
+        session = self.inertia.session
+        session[INERTIA_SESSION_PRESERVE_FRAGMENT] = True
+        session.save()
+
+        stale = self.inertia.get("/empty/", HTTP_X_INERTIA_VERSION="stale")
+
+        self.assertEqual(stale.status_code, 409)
+        self.assertTrue(self.inertia.session[INERTIA_SESSION_PRESERVE_FRAGMENT])
+
+        fresh = self.inertia.get("/empty/")
+
+        self.assertTrue(fresh.json()["preserveFragment"])

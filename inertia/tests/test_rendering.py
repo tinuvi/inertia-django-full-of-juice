@@ -133,7 +133,9 @@ class ShareTestCase(InertiaTestCase):
         self.assertJSONResponse(
             self.inertia.get("/share/"),
             inertia_page(
-                "share", props={"name": "Brandon", "position": "goalie", "number": 29}
+                "share",
+                props={"name": "Brandon", "position": "goalie", "number": 29},
+                shared_props=["position", "number"],
             ),
         )
 

@@ -44,14 +44,25 @@ class DeferredProp(CallableProp[T], MergeableProp, IgnoreOnFirstLoadProp):
         merge: bool = False,
         *,
         match_on: list[str] | None = None,
+        rescue: bool = False,
     ) -> None:
         super().__init__(prop)
         self.group = group
         self.merge = merge
         self._match_on = list(match_on) if match_on else []
+        self.rescue = rescue
 
     def should_merge(self) -> bool:
         return self.merge
+
+    def should_rescue(self) -> bool:
+        """Mirrors Laravel's ``Rescuable::shouldRescue()`` (``DeferProp``).
+
+        Any prop object exposing a truthy ``should_rescue()`` is rescued by
+        ``build_props`` when its resolver raises — duck-typed so custom prop
+        classes can opt in, like Laravel's interface check.
+        """
+        return self.rescue
 
     def match_on(self) -> list[str]:
         return list(self._match_on)

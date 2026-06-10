@@ -62,8 +62,11 @@ def defer(
     merge: bool = False,
     *,
     match_on: list[str] | None = None,
+    rescue: bool = False,
 ) -> DeferredProp[T]:
-    return DeferredProp(prop, group=group, merge=merge, match_on=match_on)
+    return DeferredProp(
+        prop, group=group, merge=merge, match_on=match_on, rescue=rescue
+    )
 
 
 def merge(

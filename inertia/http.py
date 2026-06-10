@@ -1,14 +1,17 @@
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from functools import lru_cache, wraps
 from http import HTTPStatus
 from json import dumps as json_encode
-from typing import Any, Concatenate, ParamSpec
+from typing import Any, Concatenate, ParamSpec, Union
 
+from django.contrib.messages import get_messages
 from django.core.exceptions import ImproperlyConfigured
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.forms import BaseForm
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.template.loader import render_to_string
+from django.utils.http import url_has_allowed_host_and_scheme
 
 from .helpers import deep_transform_callables
 from .infinite_scroll import InfiniteScrollProp
@@ -29,6 +32,10 @@ P = ParamSpec("P")
 INERTIA_REQUEST_ENCRYPT_HISTORY = "_inertia_encrypt_history"
 INERTIA_SESSION_CLEAR_HISTORY = "_inertia_clear_history"
 INERTIA_SESSION_PRESERVE_FRAGMENT = "_inertia_preserve_fragment"
+INERTIA_SESSION_FLASH = "_inertia_flash"
+INERTIA_SESSION_ERRORS = "_inertia_errors"
+
+ErrorsInput = Union[Mapping[str, Any], BaseForm]
 
 INERTIA_TEMPLATE = "inertia.html"
 INERTIA_SSR_TEMPLATE = "inertia_ssr.html"
@@ -82,6 +89,9 @@ class InertiaRequest(HttpRequest):
         raw = self.headers.get("X-Inertia-Except-Once-Props", "")
         return [k for k in raw.split(",") if k]
 
+    def error_bag(self) -> str:
+        return self.headers.get("X-Inertia-Error-Bag", "")
+
     def is_inertia(self) -> bool:
         return "X-Inertia" in self.headers
 
@@ -101,6 +111,16 @@ class BaseInertiaResponseMixin:
     component: str
     props: dict[str, Any]
     template_data: dict[str, Any]
+
+    # One-shot session state consumed while rendering, kept around so
+    # InertiaMiddleware.force_refresh can re-flash it when the rendered
+    # response is discarded in favor of a 409 stale-version refresh —
+    # mirroring Laravel's ``onVersionChange`` session reflash.
+    _pulled_flash: dict[str, Any] | None = None
+    _pulled_errors: dict[str, Any] | None = None
+    _pulled_clear_history: bool = False
+    _pulled_preserve_fragment: bool = False
+    _rescued_props: list[str]
 
     def _all_props(self) -> dict[str, Any]:
         """Returns the merged shared + per-request props.
@@ -142,6 +162,7 @@ class BaseInertiaResponseMixin:
             raise TypeError(
                 f"Expected bool for clear_history, got {type(clear_history).__name__}"
             )
+        self._pulled_clear_history = clear_history
 
         preserve_fragment_flag = self.request.session.pop(
             INERTIA_SESSION_PRESERVE_FRAGMENT, False
@@ -150,6 +171,7 @@ class BaseInertiaResponseMixin:
             raise TypeError(
                 f"Expected bool for preserve_fragment, got {type(preserve_fragment_flag).__name__}"
             )
+        self._pulled_preserve_fragment = preserve_fragment_flag
 
         encrypt_history_flag = self.request.should_encrypt_history()
 
@@ -198,6 +220,17 @@ class BaseInertiaResponseMixin:
         if _scroll_props:
             _page["scrollProps"] = _scroll_props
 
+        _flash = self.build_flash()
+        if _flash:
+            _page["flash"] = _flash
+
+        _shared_prop_keys = self.build_shared_prop_keys()
+        if _shared_prop_keys:
+            _page["sharedProps"] = _shared_prop_keys
+
+        if self._rescued_props:
+            _page["rescuedProps"] = list(self._rescued_props)
+
         conditional_fields = sorted(
             k for k in _page if k not in {"component", "props", "url", "version"}
         )
@@ -213,7 +246,12 @@ class BaseInertiaResponseMixin:
     def build_props(self) -> Any:
         _props = self._all_props()
 
-        _props.setdefault("errors", {})
+        # Always consume the one-shot session errors (Laravel's session flash
+        # ages them out after one request regardless), but shared/per-request
+        # ``errors`` props win the merge, keeping hand-wired recipes intact.
+        session_errors = self._resolve_session_errors()
+        if "errors" not in _props:
+            _props["errors"] = session_errors
 
         is_partial = self.request.is_a_partial_render(self.component)
         partial_keys = self.request.partial_keys() if is_partial else []
@@ -288,7 +326,120 @@ class BaseInertiaResponseMixin:
                     )
                     del _props[key]
 
+        self._rescued_props = []
+        for key in list(_props.keys()):
+            value = _props[key]
+            should_rescue = getattr(value, "should_rescue", None)
+            if not callable(should_rescue) or not should_rescue():
+                continue
+            try:
+                _props[key] = value() if callable(value) else value
+            except Exception:
+                # Mirrors Laravel's PropsResolver::resolveValue (3.x): the
+                # exception is reported — here via the adapter logger instead
+                # of Laravel's report() — the prop is dropped from props, and
+                # its key is emitted through the rescuedProps page field.
+                _logger.exception(
+                    "build_props: rescuing prop %r whose resolver raised; emitting it via rescuedProps",
+                    key,
+                )
+                del _props[key]
+                self._rescued_props.append(key)
+
         return deep_transform_callables(_props)
+
+    def _resolve_session_errors(self) -> dict[str, Any]:
+        """Pulls ``flash_errors``/``back(errors=…)`` state into the ``errors`` prop.
+
+        Mirrors Laravel's ``Middleware::resolveValidationErrors`` (3.x):
+        the session bag is consumed (pull), each field is flattened to its
+        first message, and when the request carries ``X-Inertia-Error-Bag``
+        the result is nested under that bag name. Runs only when the view
+        did not provide an ``errors`` prop itself (shared or per-request
+        props win), so hand-wired recipes keep working unchanged.
+        """
+        raw = self.request.session.pop(INERTIA_SESSION_ERRORS, None)
+        if raw is None:
+            return {}
+        if not isinstance(raw, dict):
+            raise TypeError(
+                f"Expected dict for session validation errors, got {type(raw).__name__}"
+            )
+        self._pulled_errors = raw
+        flat = {
+            field: (
+                messages_[0] if isinstance(messages_, list) and messages_ else messages_
+            )
+            for field, messages_ in raw.items()
+        }
+        bag = self.request.error_bag()
+        _logger.debug(
+            "build_props: resolved session validation errors for fields=%s (error_bag=%r)",
+            sorted(flat.keys()),
+            bag,
+        )
+        return {bag: flat} if bag else flat
+
+    def build_flash(self) -> dict[str, Any]:
+        """Returns the v3 ``flash`` page field (pull semantics).
+
+        Mirrors Laravel's ``Response::resolveFlashData`` (3.x), which pulls
+        ``inertia.flash_data`` from the session on every render — partial
+        reloads included. When ``INERTIA_FLASH_FROM_MESSAGES`` is enabled,
+        ``django.contrib.messages`` is drained (read-only iteration; the
+        MessageMiddleware exit path clears the store) into the reserved
+        ``messages`` key using the contrib.messages dict shape.
+        """
+        raw = self.request.session.pop(INERTIA_SESSION_FLASH, None)
+        flash_data: dict[str, Any] = {}
+        if raw is not None:
+            if not isinstance(raw, dict):
+                raise TypeError(
+                    f"Expected dict for flash data, got {type(raw).__name__}"
+                )
+            self._pulled_flash = raw
+            flash_data = dict(raw)
+        if settings.INERTIA_FLASH_FROM_MESSAGES:
+            drained = [
+                {
+                    "message": message.message,
+                    "level": message.level,
+                    "tags": message.tags,
+                    "extra_tags": message.extra_tags,
+                    "level_tag": message.level_tag,
+                }
+                for message in get_messages(self.request)
+            ]
+            if drained:
+                flash_data["messages"] = drained
+        if flash_data:
+            _logger.debug(
+                "build_flash: emitting flash keys=%s for component=%r",
+                sorted(flash_data.keys()),
+                self.component,
+            )
+        return flash_data
+
+    def build_shared_prop_keys(self) -> list[str]:
+        """Returns the v3 ``sharedProps`` page field.
+
+        Mirrors Laravel's ``PropsResolver::resolveSharedProps`` (3.x): the
+        deduped top-level key names (first dot segment) of props registered
+        via ``share()``, emitted on every response — partial reloads
+        included — and gated by ``INERTIA_EXPOSE_SHARED_PROP_KEYS``
+        (Laravel's ``inertia.expose_shared_prop_keys``, default true).
+        """
+        if not settings.INERTIA_EXPOSE_SHARED_PROP_KEYS:
+            return []
+        keys = [str(key).split(".", 1)[0] for key in self.request.inertia]
+        deduped = list(dict.fromkeys(keys))
+        if deduped:
+            _logger.debug(
+                "build_shared_prop_keys: emitting sharedProps=%s for component=%r",
+                deduped,
+                self.component,
+            )
+        return deduped
 
     def build_once_props(self) -> dict[str, dict[str, Any]]:
         is_partial = self.request.is_a_partial_render(self.component)
@@ -621,6 +772,99 @@ def clear_history(request: HttpRequest) -> None:
 def preserve_fragment(request: HttpRequest) -> None:
     _logger.debug("preserve_fragment(): set session flash flag (one-shot)")
     request.session[INERTIA_SESSION_PRESERVE_FRAGMENT] = True
+
+
+def is_inertia(request: HttpRequest) -> bool:
+    """Returns ``True`` when the request was made by the Inertia client.
+
+    Public mirror of Laravel's ``$request->inertia()`` request macro — the
+    bare ``X-Inertia`` header presence check the middleware already uses.
+    """
+    return "X-Inertia" in request.headers
+
+
+def flash(request: HttpRequest, **kwargs: Any) -> None:
+    """Stores one-shot flash data emitted via the v3 ``flash`` page field.
+
+    Mirrors Laravel's ``Inertia::flash()`` (3.x): values merge with any
+    already-flashed data and survive redirects, because they are only
+    pulled from the session when an Inertia page actually renders.
+    """
+    existing = request.session.get(INERTIA_SESSION_FLASH, {})
+    if not isinstance(existing, dict):
+        raise TypeError(f"Expected dict for flash data, got {type(existing).__name__}")
+    request.session[INERTIA_SESSION_FLASH] = {**existing, **kwargs}
+    _logger.debug("flash(): stored one-shot flash keys=%s", sorted(kwargs.keys()))
+
+
+def _normalize_errors(errors: ErrorsInput) -> dict[str, list[str]]:
+    if isinstance(errors, BaseForm):
+        return {
+            field: [str(message) for message in messages_]
+            for field, messages_ in errors.errors.items()
+        }
+    normalized: dict[str, list[str]] = {}
+    for field, value in errors.items():
+        if isinstance(value, str):
+            normalized[field] = [value]
+        elif isinstance(value, (list, tuple)):
+            normalized[field] = [str(item) for item in value]
+        else:
+            normalized[field] = [str(value)]
+    return normalized
+
+
+def flash_errors(request: HttpRequest, errors: ErrorsInput) -> None:
+    """Stores validation errors for the next Inertia render (one-shot).
+
+    The Django mirror of Laravel's ``redirect()->withErrors()`` storage
+    half: accepts a bound ``Form`` or a mapping of field → message(s),
+    normalizes every field to a list of strings, and merges with any
+    errors already flashed. ``build_props`` pulls them into the ``errors``
+    prop on the next render (first message per field, nested under
+    ``X-Inertia-Error-Bag`` when the request carries one).
+    """
+    normalized = _normalize_errors(errors)
+    existing = request.session.get(INERTIA_SESSION_ERRORS, {})
+    if not isinstance(existing, dict):
+        raise TypeError(
+            f"Expected dict for session validation errors, got {type(existing).__name__}"
+        )
+    request.session[INERTIA_SESSION_ERRORS] = {**existing, **normalized}
+    _logger.debug(
+        "flash_errors(): stored one-shot validation errors for fields=%s",
+        sorted(normalized.keys()),
+    )
+
+
+def back(
+    request: HttpRequest,
+    *,
+    errors: ErrorsInput | None = None,
+    fallback: str = "/",
+) -> HttpResponseRedirect:
+    """Redirects back to the referring page, optionally flashing errors.
+
+    Mirrors Laravel's ``Inertia::back()`` + ``->withErrors()`` pairing. We
+    deliberately diverge by validating the ``Referer`` with Django's
+    ``url_has_allowed_host_and_scheme`` (the ``contrib.auth`` idiom) so an
+    attacker-controlled header can never produce an open redirect; unsafe
+    or missing referers fall back to ``fallback``.
+    """
+    if errors is not None:
+        flash_errors(request, errors)
+    referer = request.META.get("HTTP_REFERER", "")
+    target = fallback
+    if referer and url_has_allowed_host_and_scheme(
+        referer,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        target = referer
+    _logger.debug(
+        "back(): redirecting to %r (errors_attached=%s)", target, errors is not None
+    )
+    return HttpResponseRedirect(target)
 
 
 def errors_response(

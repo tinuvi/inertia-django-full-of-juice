@@ -24,6 +24,13 @@ class InertiaSettings:
     INERTIA_SSR_ENABLED = False
     INERTIA_SSR_EXCLUDE: list[str] = []
     INERTIA_ENCRYPT_HISTORY = False
+    # Mirrors Laravel's ``inertia.expose_shared_prop_keys`` (default true): emit
+    # the v3 ``sharedProps`` page field listing the top-level keys registered
+    # via ``share()`` so the client can carry them over during instant visits.
+    INERTIA_EXPOSE_SHARED_PROP_KEYS = True
+    # Opt-in bridge: drain ``django.contrib.messages`` into the v3 ``flash``
+    # page field (under the reserved ``messages`` key) at render time.
+    INERTIA_FLASH_FROM_MESSAGES = False
 
     def __getattribute__(self, name: str) -> Any:
         try:

@@ -75,4 +75,25 @@ urlpatterns = [
     path("date-prop/", views.date_prop_test),
     path("render-helper-with-props/", views.render_helper_with_props_test),
     path("string-callable-props/", views.string_callable_props_test),
+    # v3 flash page field
+    path("flash-set/", views.flash_set_and_render_test),
+    path("flash-accumulate/", views.flash_accumulate_test),
+    path("flash-redirect/", views.flash_redirect_test),
+    path("flash-type-error/", views.flash_type_error_test),
+    path("flash-messages-bridge/", views.flash_messages_bridge_test),
+    # built-in validation-errors flow
+    path("back-dict-errors/", views.back_with_dict_errors_test),
+    path("back-form-errors/", views.back_with_form_errors_test),
+    path("back-plain/", views.back_plain_test),
+    path("flash-errors-only/", views.flash_errors_only_test),
+    # precognition
+    path("precog/", views.precog_test),
+    path("precog-async/", views.precog_async_test),
+    path("precog-upload/", views.precog_upload_test),
+    # rescuable deferred props
+    path("defer-rescue/", views.defer_rescue_test),
+    path("defer-no-rescue/", views.defer_no_rescue_test),
+    path("defer-rescue-after-ok/", views.defer_rescue_after_ok_test),
+    # sharedProps
+    path("share-dotted/", views.share_dotted_key_test),  # type: ignore[arg-type]
 ]

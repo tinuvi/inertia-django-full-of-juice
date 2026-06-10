@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `is_inertia(request)` public helper — the bare `X-Inertia` header check, mirroring Laravel's `$request->inertia()` request macro. `InertiaRequest.is_inertia()` and `InertiaMiddleware.is_inertia_request()` delegate to it.
 - `ErrorsInput` (the `Mapping | BaseForm` alias accepted by `flash_errors` / `redirect_back`) is exported from `inertia` for typed call sites.
 
+### Changed
+- `inertia.test.inertia_page` builds its conditional page fields from a single declarative table instead of thirteen sequential `if` statements (SonarCloud S3776). Behavior is byte-identical — the three one-shot flags and `deferredProps` stay truthiness-gated, every other field stays presence-gated (`is not None`, empty containers included) — and adding future page fields is one table line.
+
 ### Fixed
 - `from inertia import encrypt_history, clear_history` now works as the README has always documented — both helpers (and the new ones) are exported from `inertia/__init__.py`; previously the documented imports raised `ImportError`.
 - One-shot session state now survives the `409` stale-asset refresh. `page_data()` stashes everything it pops from the session (`flash`, validation errors, the `clearHistory` / `preserveFragment` flags) on the rendered response, and `InertiaMiddleware.force_refresh` writes it back when that response is discarded for a `409 X-Inertia-Location` hard reload — extending the existing `storage.used = False` messages reset. This exceeds the session reflash in Laravel's `Middleware::onVersionChange` while satisfying the protocol's reflash mandate: Laravel's `Store::reflash()` only re-marks flash key names and cannot restore values the render already pulled (`ResponseFactory::pullFlashed` keeps no stash). Previously a `clear_history()` or `preserve_fragment()` call (and any 0.5.0 flash/errors) pending at an asset-version bump died silently with the discarded response.

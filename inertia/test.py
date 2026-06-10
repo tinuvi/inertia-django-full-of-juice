@@ -116,51 +116,36 @@ def inertia_page(
     template_data = template_data or {}
     if "errors" not in props:
         props = {**props, "errors": {}}
-    _page = {
+    _page: dict[str, Any] = {
         "component": component,
         "props": props,
         "url": f"/{url}/",
         "version": resolve_inertia_version(),
     }
 
-    if encrypt_history:
-        _page["encryptHistory"] = True
-
-    if clear_history:
-        _page["clearHistory"] = True
-
-    if preserve_fragment:
-        _page["preserveFragment"] = True
-
-    if deferred_props:
-        _page["deferredProps"] = deferred_props
-
-    if merge_props is not None:
-        _page["mergeProps"] = merge_props
-
-    if prepend_props is not None:
-        _page["prependProps"] = prepend_props
-
-    if deep_merge_props is not None:
-        _page["deepMergeProps"] = deep_merge_props
-
-    if match_props_on is not None:
-        _page["matchPropsOn"] = match_props_on
-
-    if once_props is not None:
-        _page["onceProps"] = once_props
-
-    if scroll_props is not None:
-        _page["scrollProps"] = scroll_props
-
-    if flash is not None:
-        _page["flash"] = flash
-
-    if shared_props is not None:
-        _page["sharedProps"] = shared_props
-
-    if rescued_props is not None:
-        _page["rescuedProps"] = rescued_props
+    conditional_fields: dict[str, Any] = {
+        # Truthiness-gated, like the library's own emission: the three
+        # one-shot flags emit a literal True, deferredProps only when
+        # non-empty.
+        "encryptHistory": True if encrypt_history else None,
+        "clearHistory": True if clear_history else None,
+        "preserveFragment": True if preserve_fragment else None,
+        "deferredProps": deferred_props or None,
+        # Presence-gated: any non-None value is emitted verbatim, empty
+        # containers included.
+        "mergeProps": merge_props,
+        "prependProps": prepend_props,
+        "deepMergeProps": deep_merge_props,
+        "matchPropsOn": match_props_on,
+        "onceProps": once_props,
+        "scrollProps": scroll_props,
+        "flash": flash,
+        "sharedProps": shared_props,
+        "rescuedProps": rescued_props,
+    }
+    for key, value in conditional_fields.items():
+        if value is not None:
+            _page[key] = value
 
     return _page
 

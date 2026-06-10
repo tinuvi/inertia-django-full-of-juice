@@ -29,6 +29,11 @@ test.describe("Home — page shell & shared props", () => {
 		expect(page).not.toHaveProperty("encryptHistory");
 		expect(page).not.toHaveProperty("clearHistory");
 		expect(page).not.toHaveProperty("preserveFragment");
+		// ❌-by-design page fields: never emitted, and client-tolerant — the
+		// v3 client defaults each when absent (see the README feature matrix).
+		expect(page).not.toHaveProperty("sharedProps");
+		expect(page).not.toHaveProperty("rescuedProps");
+		expect(page).not.toHaveProperty("flash");
 		expect(page.component).toBe("Home");
 	});
 

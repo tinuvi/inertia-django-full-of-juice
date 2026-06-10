@@ -16,7 +16,7 @@ Everything this adapter speaks, with the **recommended approach** and the **E2E 
 | --- | :---: | --- | --- | --- |
 | 🧩 Page responses | ✅ | `@inertia('Event/Index')` decorator · or `render()` / `InertiaResponse` | [Responses](#responses) | [`home`](playwright_e2e/tests/home.spec.ts) |
 | 🤝 Shared data (every component) | ✅ | `share(request, user=…)` in middleware | [Shared Data](#shared-data) | [`home`](playwright_e2e/tests/home.spec.ts) |
-| 📦 Model / QuerySet serialization | ✅ | `InertiaJsonEncoder` (default) · `InertiaMeta.fields` | [Prop Serialization](#prop-serialization) | — *(unit)* |
+| 📦 Model / QuerySet serialization | ✅ | `InertiaJsonEncoder` (default) · `InertiaMeta.fields` | [Prop Serialization](#prop-serialization) | [`serialization`](playwright_e2e/tests/serialization.spec.ts) |
 | 🪶 Optional props (partial-reload only) | ✅ | `optional(lambda: …)` | [Optional Props](#optional-props) | [`deferred-props`](playwright_e2e/tests/deferred-props.spec.ts) · [`partial-reload`](playwright_e2e/tests/partial-reload.spec.ts) |
 | ⏳ Deferred props | ✅ | `defer(lambda: …)` | [Deferred Props](#deferred-props) | [`deferred-props`](playwright_e2e/tests/deferred-props.spec.ts) |
 | 🧵 Deferred groups (parallel fetch) | ✅ | `defer(…, group='stats')` | [Grouping requests](#grouping-requests) | [`deferred-props`](playwright_e2e/tests/deferred-props.spec.ts) · [`partial-reload`](playwright_e2e/tests/partial-reload.spec.ts) |
@@ -36,15 +36,15 @@ Everything this adapter speaks, with the **recommended approach** and the **E2E 
 | 🚫 Per-route SSR opt-out | ✅ | `INERTIA_SSR_EXCLUDE = [r'^/admin/']` | [SSR](#ssr) | [`ssr-exclusion`](playwright_e2e/tests-ssr/ssr-exclusion.spec.ts) |
 | 🛡️ CSRF cookie/header alignment | ⚠️ | align names once (client `setClient` **or** Django settings) | [CSRF](#csrf) | [`form-validation`](playwright_e2e/tests/form-validation.spec.ts) |
 | 🧾 Validation errors (Inertia visits) | ⚠️ | redirect-back + `share(request, errors=…)` | [Validation errors & error bags](#validation-errors--error-bags) | [`form-validation`](playwright_e2e/tests/form-validation.spec.ts) |
-| 🧰 Error bags (multi-form scoping) | ⚠️ | read `X-Inertia-Error-Bag`, nest errors under it | [Validation errors & error bags](#validation-errors--error-bags) | — |
+| 🧰 Error bags (multi-form scoping) | ⚠️ | read `X-Inertia-Error-Bag`, nest errors under it | [Validation errors & error bags](#validation-errors--error-bags) | [`error-bags`](playwright_e2e/tests/error-bags.spec.ts) |
 | 🌐 `useHttp` validation (`422` shape) | ✅ | `errors_response(errors, message=…)` | [useHttp responses](#validation-responses-for-usehttp) | [`errors-response`](playwright_e2e/tests/errors-response.spec.ts) |
 | 🧪 Test assertions | ✅ | `InertiaTestCase` | [Testing](#testing) | — *(harness)* |
 | ⚡ Precognition (live form validation) | ❌ | not built in | [Inertia validation](https://inertiajs.com/validation) | — |
-| 🗂️ `sharedProps` page field | ❌ | n/a — client-tolerant | [v3 protocol](https://inertiajs.com/the-protocol) | — |
-| 🛟 `rescuedProps` / `defer(rescue=True)` | ❌ | guard exceptions in the resolver yourself | [Deferred props](https://inertiajs.com/deferred-props) | — |
-| 💬 `flash` page field | ❌ | use Django `messages` | [`contrib.messages`](https://docs.djangoproject.com/en/stable/ref/contrib/messages/) | — |
+| 🗂️ `sharedProps` page field | ❌ | n/a — client-tolerant | [v3 protocol](https://inertiajs.com/the-protocol) | [`home`](playwright_e2e/tests/home.spec.ts) *(pins absence)* |
+| 🛟 `rescuedProps` / `defer(rescue=True)` | ❌ | guard exceptions in the resolver yourself | [Deferred props](https://inertiajs.com/deferred-props) | [`home`](playwright_e2e/tests/home.spec.ts) *(pins absence)* |
+| 💬 `flash` page field | ❌ | use Django `messages` | [`contrib.messages`](https://docs.djangoproject.com/en/stable/ref/contrib/messages/) | [`flash-messages`](playwright_e2e/tests/flash-messages.spec.ts) *(recipe)* |
 
-> ℹ️ The ❌ rows are genuinely absent today; the page-object omissions (`sharedProps`, `rescuedProps`, `flash`) are **client-tolerant** — their absence won't break an Inertia visit. Validation errors and error bags **are** supported — you just wire them yourself (the ⚠️ rows), by design, to stay out of Django's way. See [Validation errors & error bags](#validation-errors--error-bags).
+> ℹ️ The ❌ rows are genuinely absent today; the page-object omissions (`sharedProps`, `rescuedProps`, `flash`) are **client-tolerant** — their absence won't break an Inertia visit, and the [`home`](playwright_e2e/tests/home.spec.ts) spec pins that they are never emitted. Validation errors and error bags **are** supported — you just wire them yourself (the ⚠️ rows), by design, to stay out of Django's way; the sample project implements both recipes (plus the Django-messages replacement for `flash`), each proven by its linked spec. See [Validation errors & error bags](#validation-errors--error-bags).
 
 ## Installation
 

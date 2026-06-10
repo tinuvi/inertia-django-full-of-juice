@@ -1,6 +1,7 @@
 import json
 from datetime import timedelta
 
+from django.contrib import messages
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
@@ -21,6 +22,8 @@ from inertia import (
     share,
 )
 from inertia.http import clear_history, encrypt_history
+
+from .models import Player
 
 
 def health(request: HttpRequest) -> HttpResponse:
@@ -120,6 +123,70 @@ def form_submit(request: HttpRequest) -> HttpResponse | dict:
         share(request, errors=errors)
         return {}
     return redirect("/?submitted=1")
+
+
+def _share_bag_errors(request: HttpRequest, errors: dict[str, str]) -> None:
+    """The README error-bag recipe: nest errors under ``X-Inertia-Error-Bag``.
+
+    The v3 client sends the header when a visit opts into ``errorBag`` and
+    unwraps ``props.errors[bag]`` back into that form only.
+    """
+    bag = request.headers.get("X-Inertia-Error-Bag")
+    share(request, errors={bag: errors} if bag else errors)
+
+
+@inertia("Bags")
+def bags_page(request: HttpRequest) -> dict:
+    return {}
+
+
+@require_http_methods(["POST"])
+@inertia("Bags")
+def bags_newsletter(request: HttpRequest) -> HttpResponse | dict:
+    try:
+        payload = json.loads(request.body or b"{}")
+    except json.JSONDecodeError:
+        payload = {}
+    email = str(payload.get("email") or "").strip()
+    if "@" not in email:
+        _share_bag_errors(request, {"email": "Email is invalid"})
+        return {}
+    return redirect("/bags/?subscribed=1")
+
+
+@require_http_methods(["POST"])
+@inertia("Bags")
+def bags_feedback(request: HttpRequest) -> HttpResponse | dict:
+    try:
+        payload = json.loads(request.body or b"{}")
+    except json.JSONDecodeError:
+        payload = {}
+    comment = str(payload.get("comment") or "").strip()
+    if not comment:
+        _share_bag_errors(request, {"comment": "Comment is required"})
+        return {}
+    return redirect("/bags/?thanked=1")
+
+
+@inertia("Flash")
+def flash_page(request: HttpRequest) -> dict:
+    return {}
+
+
+@require_http_methods(["POST"])
+def flash_notify(request: HttpRequest) -> HttpResponse:
+    # Vanilla Django messages + PRG; ShareDemoMiddleware drains them into the
+    # `messages` shared prop on the redirected-to response.
+    messages.success(request, "Profile saved successfully.")
+    messages.warning(request, "Subscription expires soon.")
+    return redirect("/flash/")
+
+
+@inertia("Roster")
+def roster_page(request: HttpRequest) -> dict:
+    # QuerySet passed straight through — InertiaJsonEncoder serializes each
+    # row via the model's InertiaMeta.fields.
+    return {"players": Player.objects.order_by("number")}
 
 
 def redirect_fragment(request: HttpRequest) -> HttpResponse:

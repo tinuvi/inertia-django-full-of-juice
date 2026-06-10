@@ -1,15 +1,20 @@
 import json
 from datetime import timedelta
 
+from django import forms
 from django.contrib import messages
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
 
 from inertia import (
+    back,
+    clear_history,
     deep_merge,
     defer,
+    encrypt_history,
     errors_response,
+    flash,
     inertia,
     inertia_redirect,
     infinite_scroll,
@@ -17,11 +22,10 @@ from inertia import (
     merge,
     once,
     optional,
+    precognition,
     prepend,
     preserve_fragment,
-    share,
 )
-from inertia.http import clear_history, encrypt_history
 
 from .models import Player
 
@@ -106,8 +110,10 @@ def form_page(request: HttpRequest) -> dict:
 
 
 @require_http_methods(["POST"])
-@inertia("Form")
-def form_submit(request: HttpRequest) -> HttpResponse | dict:
+def form_submit(request: HttpRequest) -> HttpResponse:
+    # The built-in redirect-back-with-errors flow: `back()` flashes the
+    # errors to the session and the next render pulls them into the
+    # `errors` prop (first message per field), Laravel-style.
     try:
         payload = json.loads(request.body or b"{}")
     except json.JSONDecodeError:
@@ -120,19 +126,8 @@ def form_submit(request: HttpRequest) -> HttpResponse | dict:
     if "@" not in email:
         errors["email"] = "Email is invalid"
     if errors:
-        share(request, errors=errors)
-        return {}
+        return back(request, errors=errors, fallback="/form/")
     return redirect("/?submitted=1")
-
-
-def _share_bag_errors(request: HttpRequest, errors: dict[str, str]) -> None:
-    """The README error-bag recipe: nest errors under ``X-Inertia-Error-Bag``.
-
-    The v3 client sends the header when a visit opts into ``errorBag`` and
-    unwraps ``props.errors[bag]`` back into that form only.
-    """
-    bag = request.headers.get("X-Inertia-Error-Bag")
-    share(request, errors={bag: errors} if bag else errors)
 
 
 @inertia("Bags")
@@ -141,30 +136,31 @@ def bags_page(request: HttpRequest) -> dict:
 
 
 @require_http_methods(["POST"])
-@inertia("Bags")
-def bags_newsletter(request: HttpRequest) -> HttpResponse | dict:
+def bags_newsletter(request: HttpRequest) -> HttpResponse:
+    # Error-bag scoping is built in: the render nests the flashed errors
+    # under the `X-Inertia-Error-Bag` header the client re-sends while
+    # following the redirect, so only the opted-in form receives them.
     try:
         payload = json.loads(request.body or b"{}")
     except json.JSONDecodeError:
         payload = {}
     email = str(payload.get("email") or "").strip()
     if "@" not in email:
-        _share_bag_errors(request, {"email": "Email is invalid"})
-        return {}
+        return back(request, errors={"email": "Email is invalid"}, fallback="/bags/")
     return redirect("/bags/?subscribed=1")
 
 
 @require_http_methods(["POST"])
-@inertia("Bags")
-def bags_feedback(request: HttpRequest) -> HttpResponse | dict:
+def bags_feedback(request: HttpRequest) -> HttpResponse:
     try:
         payload = json.loads(request.body or b"{}")
     except json.JSONDecodeError:
         payload = {}
     comment = str(payload.get("comment") or "").strip()
     if not comment:
-        _share_bag_errors(request, {"comment": "Comment is required"})
-        return {}
+        return back(
+            request, errors={"comment": "Comment is required"}, fallback="/bags/"
+        )
     return redirect("/bags/?thanked=1")
 
 
@@ -250,3 +246,52 @@ def validate_api(request: HttpRequest) -> HttpResponse:
     if errors:
         return errors_response(errors)
     return JsonResponse({"ok": True})
+
+
+class SignupForm(forms.Form):
+    name = forms.CharField(max_length=12)
+    email = forms.EmailField()
+    age = forms.IntegerField(min_value=18)
+
+
+@inertia("Precognition")
+def precognition_page(request: HttpRequest) -> dict:
+    return {}
+
+
+@precognition(SignupForm)
+@require_http_methods(["POST"])
+def precognition_submit(request: HttpRequest) -> HttpResponse:
+    # Precognitive requests never reach this body — the decorator answers
+    # them (204 / 422). Real submits validate the full form once more.
+    try:
+        payload = json.loads(request.body or b"{}")
+    except json.JSONDecodeError:
+        payload = {}
+    form = SignupForm(payload)
+    if not form.is_valid():
+        return back(request, errors=form, fallback="/precognition/")
+    return redirect("/precognition/?signed=1")
+
+
+@inertia("FlashNative")
+def flash_native_page(request: HttpRequest) -> dict:
+    return {}
+
+
+@require_http_methods(["POST"])
+def flash_native_save(request: HttpRequest) -> HttpResponse:
+    flash(request, toast={"text": "Saved with the v3 flash field!", "kind": "success"})
+    return redirect("/flash-native/")
+
+
+def _broken_stats() -> dict:
+    raise RuntimeError("stats backend down")
+
+
+@inertia("Rescue")
+def rescue_page(request: HttpRequest) -> dict:
+    return {
+        "profile": defer(lambda: {"name": "Brandon"}),
+        "stats": defer(_broken_stats, "stats", rescue=True),
+    }

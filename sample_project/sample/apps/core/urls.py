@@ -31,4 +31,9 @@ urlpatterns = [
     path("method/submit/", views.method_handler, name="method-submit"),
     path("validate/", views.validate_page, name="validate"),
     path("api/validate/", views.validate_api, name="validate-api"),
+    path("precognition/", views.precognition_page, name="precognition"),
+    path("precognition/submit/", views.precognition_submit, name="precognition-submit"),
+    path("flash-native/", views.flash_native_page, name="flash-native"),
+    path("flash-native/save/", views.flash_native_save, name="flash-native-save"),
+    path("rescue/", views.rescue_page, name="rescue"),
 ]

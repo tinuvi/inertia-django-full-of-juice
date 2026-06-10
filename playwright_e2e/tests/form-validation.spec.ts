@@ -29,4 +29,28 @@ test.describe("Form — useForm validation flow", () => {
 			page.getByRole("heading", { name: "Inertia Django Sample", level: 1 }),
 		).toBeVisible();
 	});
+
+	test("POSTs carry Django's CSRF cookie back as the X-CSRFToken header", async ({
+		page,
+	}) => {
+		await page.goto("/form/");
+
+		// InertiaMiddleware calls get_token() on every response, so the cookie
+		// is set even though no Django template ever rendered a csrf tag.
+		const cookies = await page.context().cookies();
+		const csrf = cookies.find((cookie) => cookie.name === "csrftoken");
+		expect(csrf?.value, "csrftoken cookie not set").toBeTruthy();
+
+		const submit = page.waitForRequest(
+			(req) =>
+				req.method() === "POST" &&
+				new URL(req.url()).pathname === "/form/submit/",
+		);
+		await page.getByRole("button", { name: "Submit" }).click();
+
+		// The sample aligns the v3 client to Django's names via the `http`
+		// option (csrftoken / X-CSRFToken) — see frontend/main.tsx. Without
+		// this alignment Django would reject the POST with a 403.
+		expect((await submit).headers()["x-csrftoken"]).toBe(csrf?.value);
+	});
 });

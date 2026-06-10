@@ -539,7 +539,7 @@ def change_password(request):
     ...
 ```
 
-**Malformed bodies are a deliberate Django-idiom divergence.** An unparseable envelope (broken JSON, a non-object JSON body, a corrupt multipart payload) returns a `400` JSON `{"message": "Malformed request body."}` — still echoing `Precognition: true` — rather than Laravel's behavior of coercing the broken body to an empty payload and answering `422` (Laravel's `Request::json` swallows decode failures). Django core's stance is that an unreadable envelope is an explicit `400` (`MultiPartParserError` → `400` in `django/core/handlers/exception.py`), and we follow it.
+**Malformed bodies are a deliberate Django-idiom divergence.** An unparseable envelope (broken JSON, a non-object JSON body, a corrupt multipart payload) returns a `400` JSON `{"message": "Malformed request body."}` — still echoing `Precognition: true` — rather than Laravel's behavior of coercing the unparseable body to an empty payload and answering `422` (for JSON via `Request::json`'s swallowed decode failure; for multipart via PHP's native form parsing). Django core's stance is that an unreadable envelope is an explicit `400` (`MultiPartParserError` → `400` in `django/core/handlers/exception.py`), and we follow it. The v3 client has no `400` status hook, so a malformed body surfaces as a rejected promise either way — the `Precognition: true` echo doesn't make the client *handle* the `400`; it makes the rejection truthful (`HTTP error 400`, with this JSON reachable at `error.response.data`) instead of the misleading "Did not receive a Precognition response" error.
 
 ### Json Encoding
 

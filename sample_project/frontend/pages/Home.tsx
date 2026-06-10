@@ -37,6 +37,21 @@ export default function Home() {
 					<Link href="/form/">Form (useForm + auto-injected errors)</Link>
 				</li>
 				<li>
+					<Link href="/bags/">
+						Bags (error bags: X-Inertia-Error-Bag scoping two forms)
+					</Link>
+				</li>
+				<li>
+					<Link href="/flash/">
+						Flash (Django messages shared as one-shot props)
+					</Link>
+				</li>
+				<li>
+					<Link href="/roster/">
+						Roster (Model / QuerySet serialization via InertiaMeta)
+					</Link>
+				</li>
+				<li>
 					<Link href="/validate/">
 						Validate (errors_response + plain XHR / useHttp pattern)
 					</Link>

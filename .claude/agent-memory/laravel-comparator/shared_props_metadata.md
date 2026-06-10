@@ -1,20 +1,24 @@
 ---
 name: shared-props-metadata
-description: Laravel 3.x emits a `sharedProps` page-object field (top-level Inertia::share keys), default ON; Django adapter has no equivalent
+description: Laravel 3.x emits a `sharedProps` page-object field (top-level Inertia::share keys), default ON via expose_shared_prop_keys; Django adapter has no equivalent
 metadata:
   type: project
 ---
 
-Laravel 3.x adds a `sharedProps` key to the page object: an array of the top-level prop keys that were registered via `Inertia::share`. Frontend uses it to carry shared props over during instant/prefetch visits.
+Laravel 3.x adds a `sharedProps` key to the page object: an array of the top-level prop keys registered via `Inertia::share`. Frontend uses it to carry shared props over during instant/prefetch visits (per config/inertia.php comment).
 
-**Why:** Found during a test-coverage gap analysis of the Django adapter vs `inertiajs/inertia-laravel` 3.x. This is a v3 page-object metadata field the Django adapter (`inertia/http.py`) does not implement at all.
+**Why:** Found during a test-coverage gap analysis of the Django adapter vs `inertiajs/inertia-laravel` 3.x. A v3 page-object metadata field the Django adapter (`inertia/http.py`) does not implement at all.
 
-**How to apply:** When asked about page-object fields or `sharedProps`, mirror these facts (branch `3.x`, SHAs in MEMORY.md):
+**How to apply:** When asked about page-object fields or `sharedProps`, mirror these facts (lines verified 2026-06-09 at SHA `d51bac89fad1adae47a1b2eb44d2f31bff342ce4`):
 
-- Emission gate: `src/PropsResolver.php` `resolveSharedProps()` (~L171). Reads `config('inertia.expose_shared_prop_keys', true)` — **default is TRUE**, so `sharedProps` is emitted on every response in a fresh install. When the config is false it is omitted.
-- Field assembly: `src/PropsResolver.php` `buildMetadata()` returns `array_filter(['sharedProps' => $this->sharedPropKeys, 'mergeProps' => ..., ...])`. `array_filter` drops it when the key list is empty (so a response with no shared props omits it).
-- Key derivation: for each resolved shared key, takes the segment before the first `.` (so `deep.foo.bar` shared key contributes `deep`), then `array_unique` + `array_values`.
-- Config surface: `config/inertia.php` `'expose_shared_prop_keys' => true` (~L106, file last-modified 2026-04-08). Block titled "Expose Shared Prop Keys".
-- Tests: `tests/HistoryTest.php::test_the_history_can_be_cleared_when_redirecting` asserts rendered shell JSON contains `"sharedProps":["errors"]`. `tests/ControllerTest.php` and `tests/ResponseFactoryTest.php` both assert `'sharedProps' => ['errors']`. `ResponseFactoryTest` also has a case asserting `assertArrayNotHasKey('sharedProps', ...)` — that path runs with the gate disabled.
+- Tracking: `ResponseFactory.php` L46 `$sharedProps = []`; `share()` L101-111 (array merge / Arrayable / dot-key via `Arr::set`); `getShared()` L122-128; `flushShared()` L136-138; `render()` passes `$this->sharedProps` into the Response ctor (L374). `Response.php` keeps them separate from page props (L89, ctor L97-107) until resolution.
+- Resolution: `Response::toResponse` L188-189 -> `PropsResolver->resolve($shared, $props)`; `PropsResolver.php` resolve L161-168 merges resolved shared BEFORE page props (page props win collisions, L163).
+- Emission gate: `resolveSharedProps()` L177-194 — reads `config('inertia.expose_shared_prop_keys', true)` at L181; **default TRUE**. When false, keys are not collected (field omitted).
+- Key derivation L185-191: segment before first `.` (`strstr($key, '.', true)`), then `array_unique` + `array_values`. Top-level names only, not dot-paths.
+- Field assembly: `buildMetadata()` L227-240 — `'sharedProps' => $this->sharedPropKeys` (L230), `array_filter(..., count > 0)` drops it when empty.
+- Conditions: collected on EVERY resolve — initial loads, Inertia visits, AND partial reloads (resolve() runs resolveSharedProps before partial filtering in resolveProps). Keys appear even if the prop values were filtered out of `props` by only/except.
+- In practice >= `['errors']`: `Middleware.php` share() L68-73 always shares `'errors' => Inertia::always(resolveValidationErrors($request))`, registered in handle() L116.
+- Config block: `config/inertia.php` L122 `'expose_shared_prop_keys' => true`.
+- Tests: `tests/HistoryTest.php` (shell JSON contains `"sharedProps":["errors"]`), `tests/ControllerTest.php`, `tests/ResponseFactoryTest.php` (incl. assertArrayNotHasKey when gate disabled).
 
-Django counterpart: MISSING. `inertia/http.py` `page_data()` (L156-211) assembles component/props/url/version + conditional encryptHistory/clearHistory/preserveFragment/deferredProps/merge-kinds/onceProps/scrollProps. There is no `sharedProps`. `inertia/share.py` stores shared data on the request but never surfaces the key list into the page object. The `errors` auto-inject means a Django adapter mirroring this would emit at least `["errors"]` by default.
+Django counterpart: MISSING. `inertia/http.py` `page_data()` assembles component/props/url/version + conditional encryptHistory/clearHistory/preserveFragment/deferredProps/merge-kinds/onceProps/scrollProps — no `sharedProps`. `inertia/share.py` never surfaces the key list. A Django mirror would emit at least `["errors"]` by default given errors auto-share.

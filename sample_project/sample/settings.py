@@ -88,7 +88,30 @@ INERTIA_SSR_ENABLED = os.getenv("INERTIA_SSR_ENABLED", "False").lower() == "true
 INERTIA_SSR_URL = os.getenv("INERTIA_SSR_URL", "http://localhost:13714")
 # Comma-separated regex patterns; matching request paths skip SSR.
 INERTIA_SSR_EXCLUDE = [p for p in os.getenv("INERTIA_SSR_EXCLUDE", "").split(",") if p]
-INERTIA_VERSION = os.getenv("INERTIA_VERSION", "1.0")
+# --- E2E test hooks: runtime-mutable asset version --------------------------
+# INERTIA_VERSION is a callable (the library resolves it per request) so the
+# Playwright suite can flip the server's asset version while the container is
+# running and prove the v3.6 background-vs-sync 409 behavior. The override is
+# file-backed — cross-worker safe, every process reads the same file — and
+# falls back to the env default when the file is absent or empty.
+E2E_TEST_HOOKS = os.getenv("E2E_TEST_HOOKS", "False").lower() == "true"
+E2E_VERSION_OVERRIDE_FILE = os.getenv(
+    "E2E_VERSION_OVERRIDE_FILE", "/tmp/inertia_e2e_version_override"
+)
+_INERTIA_VERSION_DEFAULT = os.getenv("INERTIA_VERSION", "1.0")
+
+
+def _resolve_inertia_version() -> str:
+    # Sync only (house no-async rule). Reads a tiny file a few times per
+    # request — fine for the sample; production users set a plain string.
+    try:
+        override = Path(E2E_VERSION_OVERRIDE_FILE).read_text(encoding="utf-8").strip()
+    except OSError:
+        override = ""
+    return override or _INERTIA_VERSION_DEFAULT
+
+
+INERTIA_VERSION = _resolve_inertia_version
 
 # Surface every protocol decision the library makes so that exercising the
 # sample app against runserver shows the library's reasoning in the same

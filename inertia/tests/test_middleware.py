@@ -25,6 +25,10 @@ class MiddlewareTestCase(InertiaTestCase):
         self.assertEqual(
             response.headers["X-Inertia-Location"], "http://testserver/empty/"
         )
+        # The automatic version-change 409 echoes the CURRENT server version
+        # (the packaged default) so the v3.6+ client can suppress forced reloads
+        # on background requests — mirrors Laravel's MiddlewareTest assertion.
+        self.assertEqual(response.headers["X-Inertia-Version"], "1.0")
 
     def test_stale_versions_do_not_refresh_mutations(self):
         # Per the v3 protocol, the 409 + X-Inertia-Location hard reload is sent
@@ -77,6 +81,11 @@ class MiddlewareTestCase(InertiaTestCase):
         self.assertEqual(response.status_code, 409)
         self.assertIn("X-Inertia-Location", response.headers)
         self.assertEqual("http://foobar.com/", response.headers["X-Inertia-Location"])
+        # A manual location() 409 stays version-free — the discriminator the
+        # v3.6+ client uses to always navigate. With the header, an async
+        # request from a deploy-stale client would silently swallow this
+        # real redirect instead of following it.
+        self.assertNotIn("X-Inertia-Version", response.headers)
 
 
 class VersionResolutionStalenessTestCase(InertiaTestCase):
@@ -101,6 +110,9 @@ class VersionResolutionStalenessTestCase(InertiaTestCase):
         self.assertEqual(
             response.headers["X-Inertia-Location"], "http://testserver/empty/"
         )
+        # We echo the CURRENT server version ("deploy-hash"), never a reflection
+        # of the request's stale header ("old-hash").
+        self.assertEqual(response.headers["X-Inertia-Version"], "deploy-hash")
 
     @override_settings(INERTIA_VERSION=42)
     def test_non_string_version_does_not_loop_against_string_header(self):
@@ -127,6 +139,19 @@ class VersionResolutionStalenessTestCase(InertiaTestCase):
         self.assertEqual(self.page()["version"], "")
         self.assertNotIn("X-Inertia-Location", response.headers)
 
+    @override_settings(INERTIA_VERSION=None)
+    def test_disabled_version_stale_refresh_still_echoes_empty_header(self):
+        # Pins the unconditional set: even when INERTIA_VERSION is unset (it
+        # resolves to ""), the automatic 409 carries an X-Inertia-Version header
+        # — present but empty — so a future truthiness guard can't sneak in.
+        # Laravel emits the empty header too; the client treats empty and absent
+        # identically.
+        response = self.inertia.get("/empty/", HTTP_X_INERTIA_VERSION="stale")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("X-Inertia-Version", response.headers)
+        self.assertEqual(response.headers["X-Inertia-Version"], "")
+
 
 class FragmentRedirectTestCase(InertiaTestCase):
     def test_inertia_request_with_fragment_redirect_returns_409(self):
@@ -134,6 +159,10 @@ class FragmentRedirectTestCase(InertiaTestCase):
         self.assertEqual(response.status_code, 409)
         self.assertIn("X-Inertia-Redirect", response.headers)
         self.assertIn("#section", response.headers["X-Inertia-Redirect"])
+        # An inertia_redirect() 409 stays version-free (Laravel's
+        # onRedirectWithFragment sets only the redirect header) — the version
+        # header is the discriminator reserved for the automatic 409.
+        self.assertNotIn("X-Inertia-Version", response.headers)
 
     def test_non_inertia_request_with_fragment_redirect_is_left_alone(self):
         response = self.client.get("/fragment-redirect/")
@@ -147,6 +176,9 @@ class InertiaRedirectHelperTestCase(InertiaTestCase):
         response = inertia_redirect("/foo#bar")
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.headers["X-Inertia-Redirect"], "/foo#bar")
+        # inertia_redirect() 409s stay version-free — the X-Inertia-Version
+        # discriminator is reserved for the automatic version-change 409.
+        self.assertNotIn("X-Inertia-Version", response.headers)
 
     def test_inertia_redirect_helper_used_in_view(self):
         response = self.inertia.get("/inertia-redirect-helper/")

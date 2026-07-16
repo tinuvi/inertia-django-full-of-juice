@@ -242,6 +242,9 @@ class ErrorsForceRefreshReflashTestCase(InertiaTestCase):
         stale = self.inertia.get("/empty/", HTTP_X_INERTIA_VERSION="stale")
 
         self.assertEqual(stale.status_code, 409)
+        # The automatic version-change 409 echoes the CURRENT server version
+        # (the packaged default) alongside the reflashed errors.
+        self.assertEqual(stale.headers["X-Inertia-Version"], "1.0")
         self.assertEqual(
             self.inertia.session[INERTIA_SESSION_ERRORS], {"name": ["Required"]}
         )

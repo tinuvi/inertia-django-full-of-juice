@@ -1,19 +1,19 @@
 ---
 name: asset-version-handling
-description: How inertia-laravel 3.x resolves/casts the asset version (string cast) vs Django adapter's raw-value bug on numeric INERTIA_VERSION
+description: How inertia-laravel 3.x resolves/casts the asset version (getVersion(): string, ResponseFactory.php:154-160) — Django's former raw-value bug is FIXED by resolve_inertia_version() in settings.py; now MIRRORED.
 metadata:
   type: project
 ---
 
-Asset version handling comparison, scanned 2026-05-30 against `inertiajs/inertia-laravel@3.x`.
+Asset version handling comparison, scanned 2026-05-30 against `inertiajs/inertia-laravel@3.x`; **line numbers + Django verdict re-verified 2026-07-16**.
 
-**Why:** Django adapter has a likely bug — non-string `INERTIA_VERSION` (e.g. int `42`) causes a 409 reload loop because HTTP headers are always strings and the stale check compares str vs int.
+> **RESOLVED 2026-07-16:** the string-cast bug and the missing-callable feature described below are both FIXED. `inertia/settings.py:45-60` `resolve_inertia_version() -> str` invokes a callable `INERTIA_VERSION`, maps `None → ""`, and casts to `str` — an explicit mirror of `ResponseFactory::getVersion(): string` (cited in its own docstring). Call sites use it (`middleware.py:97`, `http.py`). Django is now **SAME**, not divergent. The "Verdict" line at the bottom is historical.
 
-**How to apply:** When reviewing/fixing version emission or stale check, mirror Laravel's two-point string cast.
+**How to apply:** When reviewing version emission or the stale check, this is settled — mirror confirmed. Live question is the *response* header on the 409, see [[version-header-on-409]].
 
 ## Laravel 3.x (resolved string everywhere)
-- `ResponseFactory::version($version)` — `src/ResponseFactory.php:148` — setter stores raw value (closure/number/string), no validation.
-- `ResponseFactory::getVersion(): string` — `src/ResponseFactory.php:150-154` — resolves closure via `App::call`, then `return (string) $version;`. Return type is declared `: string`. THIS is the single cast point.
+- `ResponseFactory::version($version)` — setter stores raw value (closure/number/string), no validation.
+- `ResponseFactory::getVersion(): string` — `src/ResponseFactory.php:154-160` (was :150-154 before 2026-04-30) — resolves closure via `App::call`, then `return (string) $version;`. Return type is declared `: string`. THIS is the single cast point.
 - `Response` page object — `src/Response.php:191` — `'version' => $this->version`. NOT a raw cast here; `$this->version` on the Response was passed in by `ResponseFactory::render()` as `$this->getVersion()` (already a string). So emit is string by construction.
 - Stale check — `src/Middleware.php:148` — `$request->method() === 'GET' && $request->header(Header::VERSION, '') !== Inertia::getVersion()`. Both operands are strings: header is always string; `getVersion()` casts. Default for missing header is `''` (empty string), not the configured version.
 - `Middleware::version()` — `src/Middleware.php` — default resolver returns `hash('xxh128', ...)` of asset_url/manifest, or `null`. `(string) null === ''`, so null version round-trips to `''` and matches the missing-header default `''` → never stale. That is how `test_the_version_is_optional` passes.

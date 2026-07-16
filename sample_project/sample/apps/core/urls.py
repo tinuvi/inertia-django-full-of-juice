@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.urls import path
 
 from . import views
@@ -36,6 +37,7 @@ urlpatterns = [
     path("flash-native/", views.flash_native_page, name="flash-native"),
     path("flash-native/save/", views.flash_native_save, name="flash-native-save"),
     path("rescue/", views.rescue_page, name="rescue"),
+    path("poll/", views.poll_page, name="poll"),
     path("chain/link-messages/", views.chain_link_messages, name="chain-link-messages"),
     path("chain/link-flash/", views.chain_link_flash, name="chain-link-flash"),
     path("chain/gate/", views.chain_gate, name="chain-gate"),
@@ -43,3 +45,10 @@ urlpatterns = [
     path("chain/plant-message/", views.chain_plant_message, name="chain-plant-message"),
     path("chain/plant-flash/", views.chain_plant_flash, name="chain-plant-flash"),
 ]
+
+# Test-only routes, registered only when E2E_TEST_HOOKS is on (see settings.py
+# and sample_project/docker-compose.yml). The __e2e__ prefix marks them off.
+if settings.E2E_TEST_HOOKS:
+    urlpatterns += [
+        path("__e2e__/version/", views.e2e_set_version, name="e2e-set-version"),
+    ]

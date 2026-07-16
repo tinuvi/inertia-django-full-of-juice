@@ -1,11 +1,14 @@
 import json
 from datetime import timedelta
+from pathlib import Path
 from uuid import uuid4
 
 from django import forms
+from django.conf import settings
 from django.contrib import messages
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
+from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from inertia import (
@@ -27,6 +30,7 @@ from inertia import (
     preserve_fragment,
     redirect_back,
 )
+from inertia.settings import resolve_inertia_version
 
 from .models import Player
 
@@ -347,3 +351,41 @@ def rescue_page(request: HttpRequest) -> dict:
         "profile": defer(lambda: {"name": "Brandon"}),
         "stats": defer(_broken_stats, "stats", rescue=True),
     }
+
+
+@inertia("Poll")
+def poll_page(request: HttpRequest) -> dict:
+    # The frontend mounts usePoll here. When the asset version is flipped
+    # mid-session (via the e2e_set_version hook) the background poll receives a
+    # version-change 409 that the v3.6 client suppresses (no hard reload),
+    # while a user-initiated visit still hard-navigates.
+    return {}
+
+
+# --- E2E test hooks ----------------------------------------------------------
+# Registered in urls.py only when settings.E2E_TEST_HOOKS is on. Flips the
+# file-backed INERTIA_VERSION override at runtime so the Playwright suite can
+# prove the v3.6 background-vs-sync 409 behavior.
+
+
+@csrf_exempt
+@require_http_methods(["POST", "DELETE"])
+def e2e_set_version(request: HttpRequest) -> JsonResponse:
+    override = Path(settings.E2E_VERSION_OVERRIDE_FILE)
+    if request.method == "DELETE":
+        # Clear the override → back to the env default.
+        override.unlink(missing_ok=True)
+    else:
+        try:
+            payload = json.loads(request.body or b"{}")
+        except json.JSONDecodeError:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        value = str(payload.get("version") or "").strip()
+        if value:
+            override.write_text(value, encoding="utf-8")
+        else:
+            override.unlink(missing_ok=True)
+    # Echo what the server now resolves so the caller can await the flip.
+    return JsonResponse({"version": resolve_inertia_version()})

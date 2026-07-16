@@ -110,7 +110,13 @@ class InertiaMiddleware:
         if not isinstance(storage, list):
             storage.used = False
         self.reflash_one_shot_state(request, response)
-        return location(request.build_absolute_uri())
+        refresh = location(request.build_absolute_uri())
+        # Echo the CURRENT server version so the v3.6+ client can tell this
+        # automatic version-change 409 apart from a manual location() redirect
+        # (which stays version-free) and skip forced reloads on background
+        # requests. Mirrors Laravel Middleware::onVersionChange (PR #884).
+        refresh.headers["X-Inertia-Version"] = resolve_inertia_version()
+        return refresh
 
     def reflash_one_shot_state(
         self, request: HttpRequest, response: HttpResponse | None

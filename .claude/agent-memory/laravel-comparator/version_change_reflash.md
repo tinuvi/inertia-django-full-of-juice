@@ -5,10 +5,14 @@ metadata:
   type: project
 ---
 
-Verified 2026-06-10 against `inertiajs/inertia-laravel` branch `3.x` (content identical to SHA `d51bac8`, 2026-06-04 readings; Middleware.php = 249 lines).
+Verified 2026-06-10 against `inertiajs/inertia-laravel` branch `3.x`; **re-verified 2026-07-16** (Middleware.php now 251 lines).
+
+> **UPDATED 2026-07-16:** `onVersionChange` gained a line — it now also echoes the asset version:
+> `$response = Inertia::location($request->fullUrl()); $response->headers->set(Header::VERSION, Inertia::getVersion()); return $response;`
+> (`Middleware.php:216`, PR #884, commit `022d54f`, merged 2026-07-02). The reflash analysis below is unaffected and still holds. See [[version-header-on-409]] for the header itself — Django does NOT mirror it yet.
 
 ## Laravel facts
-- `src/Middleware.php` L207-216 `onVersionChange()`: `if ($request->hasSession()) { $session = $request->session(); $session->reflash(); } return Inertia::location($request->fullUrl());`
+- `src/Middleware.php` L207-219 `onVersionChange()`: reflash (if session) → `Inertia::location($request->fullUrl())` → set `Header::VERSION` to `Inertia::getVersion()` (L216) → return.
 - Version check runs ONLY AFTER `$next($request)` (L138 → L149-151), gated on `X-Inertia` (L145-147) + `method === 'GET'` + `header(VERSION,'') !== Inertia::getVersion()`. No pre-controller check anywhere in 3.x. Controller always executes; its response is discarded.
 - `laravel/framework@12.x` `src/Illuminate/Session/Store.php` L503-508 `reflash()`: `mergeNewFlashes($this->get('_flash.old', [])); $this->put('_flash.old', []);` — re-marks KEY NAMES only. It cannot resurrect a VALUE already removed from attributes by `pull()`.
 - Destructive render-time pulls in 3.x (all happen inside `$next`, BEFORE onVersionChange):

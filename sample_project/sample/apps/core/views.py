@@ -380,9 +380,11 @@ def e2e_set_version(request: HttpRequest) -> JsonResponse:
             payload = json.loads(request.body or b"{}")
         except json.JSONDecodeError:
             payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
         value = str(payload.get("version") or "").strip()
         if value:
-            override.write_text(value)
+            override.write_text(value, encoding="utf-8")
         else:
             override.unlink(missing_ok=True)
     # Echo what the server now resolves so the caller can await the flip.

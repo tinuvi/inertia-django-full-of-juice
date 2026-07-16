@@ -105,7 +105,7 @@ def _resolve_inertia_version() -> str:
     # Sync only (house no-async rule). Reads a tiny file a few times per
     # request — fine for the sample; production users set a plain string.
     try:
-        override = Path(E2E_VERSION_OVERRIDE_FILE).read_text().strip()
+        override = Path(E2E_VERSION_OVERRIDE_FILE).read_text(encoding="utf-8").strip()
     except OSError:
         override = ""
     return override or _INERTIA_VERSION_DEFAULT

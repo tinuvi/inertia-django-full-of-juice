@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-07-16
+
+### Fixed
+- The stale-asset-version `409 X-Inertia-Location` response now echoes the current server version in `X-Inertia-Version`, mirroring `inertiajs/inertia-laravel@3.x` `Middleware::onVersionChange` (PR #884, commit 022d54f, v3.1.1). Without it, the @inertiajs/core ≥3.6.0 background-request protection (PR #3180: a version-change 409 on an `async` request — `usePoll`, `router.reload()`, deferred props, `WhenVisible` — no longer forces a full-page navigation that destroys in-flight client state) could never engage against this adapter, because the client computes `versionChange` from that response header; the cancelable `inertia:location` event also always fired with `versionChange: false`. The header is set only on the automatic version-change 409 — manual `location()` / `inertia_redirect()` responses deliberately stay version-free so they always navigate. Set unconditionally, including the empty string when `INERTIA_VERSION` is unset (Laravel emits the empty header there too; the client treats empty and absent identically).
+
 ## [0.5.0] - 2026-06-10
 
 ### Added

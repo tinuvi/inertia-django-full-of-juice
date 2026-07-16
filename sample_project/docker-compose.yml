@@ -20,6 +20,9 @@ services:
       DJANGO_DEBUG: "True"
       DJANGO_VITE_DEV_MODE: "False"
       INERTIA_SSR_ENABLED: "False"
+      # Test-only: exposes the runtime version-flip endpoint used by the
+      # asset-version-background Playwright spec. Never set in production.
+      E2E_TEST_HOOKS: "True"
     command: ["./scripts/start-web.sh"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/').read()"]

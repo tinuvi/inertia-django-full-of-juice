@@ -60,6 +60,11 @@ export default function Home() {
 					</Link>
 				</li>
 				<li>
+					<Link href="/poll/">
+						Poll (usePoll background reloads vs version-change 409)
+					</Link>
+				</li>
+				<li>
 					<Link href="/roster/">
 						Roster (Model / QuerySet serialization via InertiaMeta)
 					</Link>

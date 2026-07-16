@@ -1,7 +1,10 @@
 # Compliance reviewer memory
 
 ## Reference SHA
-- [Laravel/client reference points](reference_sha.md) — 3.x sources read for 0.4.0 SSR + 0.5.0 flash/errors/precognition/rescued/shared reviews (last 2026-06-10)
+- [Laravel/client reference points](reference_sha.md) — 3.x sources read for 0.4.0 SSR, 0.5.0 v3-completion, and issue #5 409-version-echo reviews (last 2026-07-16)
+
+## Advisories pending implementation
+- [Issue #5: version echo on stale 409](advisory_issue5_version_header_409.md) — would-PASS conditions; E2E needs client >=3.6.0; location() must stay version-free
 
 ## Recurring accepted divergences
 - [INERTIA_SSR_EXCLUDE regex vs glob](divergence_ssr_exclude.md) — Django re.search on request.path vs Laravel anchored glob; both divergences settled, don't re-flag the surface

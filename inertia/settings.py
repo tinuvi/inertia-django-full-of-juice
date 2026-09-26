@@ -2,6 +2,7 @@ from collections.abc import Callable
 from typing import Any, Union
 
 from django.conf import settings as django_settings
+from urllib3.util import Timeout as Urllib3Timeout
 
 from .utils import InertiaJsonEncoder
 
@@ -16,6 +17,12 @@ __all__ = ["settings", "resolve_inertia_version"]
 VersionValue = Union[str, int, float, None]
 VersionResolver = Callable[[], VersionValue]
 
+# ``INERTIA_SSR_TIMEOUT`` is passed verbatim to ``requests``: seconds as a number
+# (applied to both the connect and the read phase), a ``(connect, read)`` pair,
+# a urllib3 ``Timeout`` (e.g. ``total=`` to cap the whole transfer), or ``None``
+# to wait forever. Validated at startup by the ``inertia.E002`` check.
+SsrTimeout = Union[float, tuple[float, float], Urllib3Timeout, None]
+
 
 class InertiaSettings:
     INERTIA_VERSION: Union[VersionValue, VersionResolver] = "1.0"
@@ -23,6 +30,12 @@ class InertiaSettings:
     INERTIA_SSR_URL = "http://localhost:13714"
     INERTIA_SSR_ENABLED = False
     INERTIA_SSR_EXCLUDE: list[str] = []
+    # Bounds the first-load render call so a hung SSR service degrades to the
+    # client-side shell instead of stalling the request. Mirrors Laravel's
+    # ``inertia.ssr.timeout`` (``INERTIA_SSR_TIMEOUT``); unlike Laravel, whose
+    # HTTP client already defaults to 30s, ``requests`` has no default at all,
+    # so the library ships a finite one. 5s matches the official SSR docs example.
+    INERTIA_SSR_TIMEOUT: SsrTimeout = 5.0
     INERTIA_ENCRYPT_HISTORY = False
     # Mirrors Laravel's ``inertia.expose_shared_prop_keys`` (default true): emit
     # the v3 ``sharedProps`` page field listing the top-level keys registered

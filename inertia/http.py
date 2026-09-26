@@ -23,8 +23,21 @@ try:
     # Must be early-imported so tests can patch it with
     # a mock module
     import requests
+
+    # Bound by name at import time: tests patch the whole ``requests`` module,
+    # and an ``except requests.RequestException`` would then catch a Mock.
+    from requests.exceptions import RequestException
 except ImportError:
     requests = None  # type: ignore[assignment]
+    # ``RequestException`` subclasses ``OSError`` (``IOError``); it is the
+    # closest stdlib ancestor of everything ``requests`` raises.
+    RequestException = OSError  # type: ignore[assignment,misc]
+
+# Every way the SSR render call itself can fail — see the ``except`` in
+# ``build_first_load_context_and_template``. A named tuple rather than an inline
+# one: ruff's py314 target would rewrite ``except (A, B):`` to PEP 758's
+# ``except A, B:``, a SyntaxError on the Python 3.12/3.13 the package supports.
+_SSR_RENDER_ERRORS = (RequestException, ValueError, TypeError, OverflowError)
 
 _logger = logging.getLogger("inertia_django_full_of_juice")
 
@@ -672,10 +685,13 @@ class BaseInertiaResponseMixin:
             try:
                 # ``requests`` is a hard dependency; the module-level ``None`` fallback
                 # only guards the optional import, so this path runs only when present.
+                # ``timeout`` bounds a hung SSR service: without it ``requests``
+                # waits forever and the fallback below is never reached.
                 response = requests.post(  # pyrefly: ignore[missing-attribute]
                     f"{settings.INERTIA_SSR_URL}/render",
                     data=data,
                     headers={"Content-Type": "application/json"},
+                    timeout=settings.INERTIA_SSR_TIMEOUT,
                 )
                 response.raise_for_status()
                 _logger.debug(
@@ -686,7 +702,19 @@ class BaseInertiaResponseMixin:
                     **response.json(),
                     **self.template_data,
                 }, INERTIA_SSR_TEMPLATE
-            except Exception:
+            # Deliberately narrow — every way the render call itself can fail:
+            # ``RequestException`` (connection errors, timeouts, non-2xx via
+            # ``raise_for_status``, undecodable JSON), ``ValueError`` (urllib3
+            # rejecting a malformed ``INERTIA_SSR_TIMEOUT``), ``OverflowError``
+            # (a timeout too large for the platform clock, ~9.2e9s and up) and
+            # ``TypeError`` (a JSON body that is not an object, e.g. the Vite
+            # dev server's ``null`` while it warms up). Anything else propagates, notably a
+            # per-request deadline such as gunicorn+gevent's
+            # ``gevent.Timeout(n, exception=SomeError)``: swallowing it here
+            # would turn the application's deadline into a 200 client shell.
+            # Laravel's ``HttpGateway::dispatch`` catches ``Exception``; PHP has
+            # no deadline that can interrupt the HTTP call this way.
+            except _SSR_RENDER_ERRORS:
                 _logger.exception("SSR render request failed")
 
         # Escape characters that would let an attacker break out of the

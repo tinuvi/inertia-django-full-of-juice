@@ -2,10 +2,10 @@
   "name": "inertia-django-full-of-juice-playwright",
   "version": "1.0.0",
   "private": true,
-  "description": "End-to-end tests for inertia-django-full-of-juice, driven through the dockerized sample project (SSR-off on :8000, SSR-on on :8001).",
+  "description": "End-to-end tests for inertia-django-full-of-juice, driven through the dockerized sample project (SSR-off on :8000, SSR-on on :8001, SSR-on under gunicorn+gevent against a hung SSR stub on :8002).",
   "scripts": {
     "test": "playwright test --project=without-ssr",
-    "test:ssr": "playwright test --project=with-ssr",
+    "test:ssr": "playwright test --project=with-ssr --project=with-ssr-gevent",
     "test:all": "playwright test",
     "test:ui": "playwright test --ui",
     "test:report": "playwright show-report",

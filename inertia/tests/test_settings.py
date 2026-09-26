@@ -1,6 +1,11 @@
-from django.test import override_settings
+import math
 
-from inertia.apps import check_ssr_exclude_patterns
+from django.core.management import call_command
+from django.core.management.base import SystemCheckError
+from django.test import override_settings
+from urllib3.util import Timeout as Urllib3Timeout
+
+from inertia.apps import check_ssr_exclude_patterns, check_ssr_timeout
 from inertia.settings import resolve_inertia_version
 from inertia.settings import settings as inertia_settings
 from inertia.test import InertiaTestCase
@@ -13,6 +18,74 @@ class SettingsTestCase(InertiaTestCase):
     @override_settings(INERTIA_SSR_EXCLUDE=[r"^/admin/"])
     def test_ssr_exclude_reads_from_django_settings(self):
         self.assertEqual(inertia_settings.INERTIA_SSR_EXCLUDE, [r"^/admin/"])
+
+    def test_ssr_timeout_defaults_to_five_seconds(self):
+        self.assertEqual(inertia_settings.INERTIA_SSR_TIMEOUT, 5.0)
+
+    @override_settings(INERTIA_SSR_TIMEOUT=2)
+    def test_ssr_timeout_reads_from_django_settings(self):
+        self.assertEqual(inertia_settings.INERTIA_SSR_TIMEOUT, 2)
+
+
+class SSRTimeoutCheckTestCase(InertiaTestCase):
+    def test_default_produces_no_errors(self):
+        self.assertEqual(check_ssr_timeout(None), [])
+
+    def test_values_requests_accepts_produce_no_errors(self):
+        for value in (
+            1,
+            2.5,
+            0.01,
+            1e9,
+            None,
+            (1, 5),
+            (0.5, 2.5),
+            (None, 5),
+            (5, None),
+            Urllib3Timeout(total=2),
+            Urllib3Timeout(connect=1, read=5),
+        ):
+            with (
+                self.subTest(value=value),
+                override_settings(INERTIA_SSR_TIMEOUT=value),
+            ):
+                self.assertEqual(check_ssr_timeout(None), [])
+
+    def test_values_requests_rejects_report_an_error(self):
+        for value in (
+            "4",
+            0,
+            -1,
+            0.0,
+            True,
+            False,
+            (1,),
+            (1, 2, 3),
+            [1, 2],
+            (1, "5"),
+            (0, 5),
+            (5, -1),
+            (True, 5),
+            math.inf,
+            -math.inf,
+            math.nan,
+            (5, math.inf),
+        ):
+            with (
+                self.subTest(value=value),
+                override_settings(INERTIA_SSR_TIMEOUT=value),
+            ):
+                errors = check_ssr_timeout(None)
+
+                self.assertEqual(len(errors), 1)
+                self.assertEqual(errors[0].id, "inertia.E002")
+                self.assertIn(repr(value), errors[0].msg)
+                self.assertIn("float()", errors[0].hint)
+
+    @override_settings(INERTIA_SSR_TIMEOUT="4")
+    def test_the_check_is_registered_and_fails_manage_py_check(self):
+        with self.assertRaisesMessage(SystemCheckError, "inertia.E002"):
+            call_command("check")
 
 
 class SSRExcludeCheckTestCase(InertiaTestCase):

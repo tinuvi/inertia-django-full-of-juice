@@ -34,6 +34,7 @@ Everything this adapter speaks, with the **recommended approach** and the **E2E 
 | 🧹 Clear history (e.g. on logout) | ✅ | `clear_history(request)` | [History Encryption](#history-encryption) | [`history`](playwright_e2e/tests/history.spec.ts) |
 | 🖥️ Server-side rendering (SSR) | ✅ | `INERTIA_SSR_ENABLED = True` | [SSR](#ssr) | [`ssr-exclusion`](playwright_e2e/tests-ssr/ssr-exclusion.spec.ts) |
 | 🚫 Per-route SSR opt-out | ✅ | `INERTIA_SSR_EXCLUDE = [r'^/admin/']` | [SSR](#ssr) | [`ssr-exclusion`](playwright_e2e/tests-ssr/ssr-exclusion.spec.ts) |
+| ⏱️ SSR render timeout (hung SSR → client shell) | ✅ | `INERTIA_SSR_TIMEOUT = 5.0` | [SSR](#ssr) | [`ssr-timeout.gevent`](playwright_e2e/tests-ssr/ssr-timeout.gevent.spec.ts) |
 | 🛡️ CSRF cookie/header alignment | ⚠️ | align names once (client `setClient` **or** Django settings) | [CSRF](#csrf) | [`form-validation`](playwright_e2e/tests/form-validation.spec.ts) |
 | 🧾 Validation errors (Inertia visits) | ✅ | `redirect_back(request, errors=form)` · `flash_errors(request, …)` | [Validation errors & error bags](#validation-errors--error-bags) | [`form-validation`](playwright_e2e/tests/form-validation.spec.ts) |
 | 🧰 Error bags (multi-form scoping) | ✅ ⚙️ | automatic — flashed errors nest under `X-Inertia-Error-Bag` | [Validation errors & error bags](#validation-errors--error-bags) | [`error-bags`](playwright_e2e/tests/error-bags.spec.ts) |
@@ -606,6 +607,32 @@ class LogoutView(auth_views.LogoutView):
     anchored — unlike Laravel, which matches a glob against the slash-trimmed
     path and full URL. A Laravel `Inertia::withoutSsr('admin/*')` becomes
     `INERTIA_SSR_EXCLUDE = [r'^/admin/']` here.
+* Bound the render call with `INERTIA_SSR_TIMEOUT` (seconds, default `5.0`).
+  When the SSR service fails — refuses the connection, answers with an error,
+  returns a body that isn't a JSON object, or doesn't answer within the
+  timeout — the failure is logged (`SSR render request failed`) and the page
+  falls back to the client-side shell, so a broken or hung SSR service never
+  takes the site down. The value is passed verbatim to `requests`: a number
+  applies to both the connect and the read phase, a `(connect, read)` tuple sets
+  them separately, and `None` waits forever. The read timeout caps each wait
+  for data, not the total transfer; to cap the whole transfer (as Laravel's
+  Guzzle-based `timeout` does), pass a `urllib3.util.Timeout(total=5)`. Invalid
+  values (a string, `0`, a negative number, `inf`, a bool, a 3-tuple) are
+  reported by a Django system check (`inertia.E002`) at startup — convert env
+  vars with `float()`, e.g.
+  `INERTIA_SSR_TIMEOUT = float(os.getenv('INERTIA_SSR_TIMEOUT', '5'))`.
+  * **gevent deployments:** only failures of the render call itself trigger
+    the fallback. Any other exception raised while the call waits — notably a
+    per-request deadline such as gunicorn's gevent worker with
+    `gevent.Timeout(n, exception=YourError)` — propagates to your
+    application instead of being turned into a `200` client shell. For that,
+    the deadline exception must not derive from `OSError` (so not
+    `TimeoutError`: urllib3 converts it into a `ReadTimeout` while the call
+    waits), `ValueError`, `TypeError` or `OverflowError` — the failures the
+    fallback handles. Keep `INERTIA_SSR_TIMEOUT` well below that deadline so a
+    hung SSR service degrades to the shell instead of an error. The
+    [`ssr-timeout.gevent`](playwright_e2e/tests-ssr/ssr-timeout.gevent.spec.ts)
+    E2E spec runs this setup (`sample_project/gunicorn_gevent.py`).
 
 #### Frontend
 
@@ -636,6 +663,7 @@ INERTIA_JSON_ENCODER = CustomJsonEncoder # defaults to inertia.utils.InertiaJson
 INERTIA_SSR_URL = 'http://localhost:13714' # defaults to http://localhost:13714
 INERTIA_SSR_ENABLED = False # defaults to False
 INERTIA_SSR_EXCLUDE = [r'^/admin/'] # defaults to []; regex patterns matched (re.search) against request.path — matching paths skip SSR
+INERTIA_SSR_TIMEOUT = 5.0 # defaults to 5.0 seconds; a (connect, read) tuple or None (wait forever) also work — a hung SSR service falls back to the client shell
 INERTIA_ENCRYPT_HISTORY = False # defaults to False
 INERTIA_EXPOSE_SHARED_PROP_KEYS = True # defaults to True; emit the sharedProps page field listing share() keys (instant visits)
 INERTIA_FLASH_FROM_MESSAGES = False # defaults to False; drain django.contrib.messages into flash.messages at render time

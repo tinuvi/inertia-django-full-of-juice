@@ -42,8 +42,7 @@ class SSRTimeoutCheckTestCase(InertiaTestCase):
             (0.5, 2.5),
             (None, 5),
             (5, None),
-            Urllib3Timeout(total=2),
-            Urllib3Timeout(connect=1, read=5),
+            (None, None),
         ):
             with (
                 self.subTest(value=value),
@@ -70,6 +69,9 @@ class SSRTimeoutCheckTestCase(InertiaTestCase):
             -math.inf,
             math.nan,
             (5, math.inf),
+            # requests accepts a urllib3 ``Timeout`` too, but it is not part of
+            # the setting's contract: its ``total`` is no wall-clock cap either.
+            Urllib3Timeout(total=2),
         ):
             with (
                 self.subTest(value=value),

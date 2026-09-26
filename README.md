@@ -612,25 +612,26 @@ class LogoutView(auth_views.LogoutView):
   returns a body that isn't a JSON object, or doesn't answer within the
   timeout — the failure is logged (`SSR render request failed`) and the page
   falls back to the client-side shell, so a broken or hung SSR service never
-  takes the site down. The value is passed verbatim to `requests`: a number
-  applies to both the connect and the read phase, a `(connect, read)` tuple sets
-  them separately, and `None` waits forever. The read timeout caps each wait
-  for data, not the total transfer; to cap the whole transfer (as Laravel's
-  Guzzle-based `timeout` does), pass a `urllib3.util.Timeout(total=5)`. Invalid
-  values (a string, `0`, a negative number, `inf`, a bool, a 3-tuple) are
-  reported by a Django system check (`inertia.E002`) at startup — convert env
-  vars with `float()`, e.g.
-  `INERTIA_SSR_TIMEOUT = float(os.getenv('INERTIA_SSR_TIMEOUT', '5'))`.
+  takes the site down. A render slower than the timeout falls back too: raise
+  the value if your renders legitimately take longer. The value is passed
+  verbatim to `requests`: a number applies to the connect and to each wait for
+  data, a `(connect, read)` tuple sets them separately, and `None` waits forever.
+  It is not a wall-clock cap — a server that keeps trickling bytes can exceed
+  it — but a hung service that sends nothing is cut off after the timeout.
+  Invalid values (a string, `0`, a negative number, `inf`, a bool, a 3-tuple)
+  are reported by a Django system check (`inertia.E002`) at startup — convert
+  env vars with `float()`, e.g.
+  `INERTIA_SSR_TIMEOUT = float(os.getenv('INERTIA_SSR_TIMEOUT') or 5)`.
   * **gevent deployments:** only failures of the render call itself trigger
     the fallback. Any other exception raised while the call waits — notably a
     per-request deadline such as gunicorn's gevent worker with
     `gevent.Timeout(n, exception=YourError)` — propagates to your
     application instead of being turned into a `200` client shell. For that,
     the deadline exception must not derive from `OSError` (so not
-    `TimeoutError`: urllib3 converts it into a `ReadTimeout` while the call
-    waits), `ValueError`, `TypeError` or `OverflowError` — the failures the
-    fallback handles. Keep `INERTIA_SSR_TIMEOUT` well below that deadline so a
-    hung SSR service degrades to the shell instead of an error. The
+    `TimeoutError`), `ValueError`, `TypeError`, `OverflowError` or
+    `RecursionError` — the failures the fallback handles. Keep
+    `INERTIA_SSR_TIMEOUT` well below that deadline so a hung SSR service
+    degrades to the shell instead of an error. The
     [`ssr-timeout.gevent`](playwright_e2e/tests-ssr/ssr-timeout.gevent.spec.ts)
     E2E spec runs this setup (`sample_project/gunicorn_gevent.py`).
 

@@ -46,22 +46,32 @@ test.describe("SSR render timeout under gunicorn + gevent (INERTIA_SSR_TIMEOUT)"
 	}) => {
 		// One gevent worker process. While a first load waits ~1s on the hung
 		// stub, an Inertia visit (which never calls SSR) must be served at once.
+		const delayMs = 500;
+		const ssrTimeoutMs = 1_000;
 		let firstLoadDone = false;
+		const started = Date.now();
 		const firstLoad = request.get("/").then((response) => {
 			firstLoadDone = true;
-			return response;
+			return { response, elapsed: Date.now() - started };
 		});
-		await new Promise((resolve) => setTimeout(resolve, 200));
+		await new Promise((resolve) => setTimeout(resolve, delayMs));
 
+		const visitStarted = Date.now();
 		const visit = await request.get("/", {
 			// INERTIA_VERSION is unset on this service, so the sample serves "1.0".
 			headers: { "X-Inertia": "true", "X-Inertia-Version": "1.0" },
 		});
+		const visitElapsed = Date.now() - visitStarted;
 
 		expect(visit.status()).toBe(200);
 		expect((await visit.json()).component).toBe("Home");
 		expect(firstLoadDone).toBe(false);
-		expect((await firstLoad).status()).toBe(200);
+		const first = await firstLoad;
+		expect(first.response.status()).toBe(200);
+		// Proof of overlap: the render call waits at least the SSR timeout from
+		// the moment the first load reaches the server. Had it only arrived after
+		// the visit was served, it could not finish before this bound.
+		expect(first.elapsed).toBeLessThan(delayMs + visitElapsed + ssrTimeoutMs);
 	});
 
 	test("a request deadline firing during the render call is not swallowed", async ({
@@ -77,7 +87,10 @@ test.describe("SSR render timeout under gunicorn + gevent (INERTIA_SSR_TIMEOUT)"
 		expect(response.status()).toBe(500);
 		const html = await response.text();
 		expect(html).not.toContain(CLIENT_SHELL);
-		// DEBUG=True on this service: the technical 500 page names the error.
+		// DEBUG=True on this service: the technical 500 page names the error and
+		// its traceback, which must run through the SSR render call — proof the
+		// deadline fired while the call was waiting, not before it.
 		expect(html).toContain("RequestDeadlineExceededError");
+		expect(html).toContain("build_first_load_context_and_template");
 	});
 });

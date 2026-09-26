@@ -2,7 +2,6 @@ from collections.abc import Callable
 from typing import Any, Union
 
 from django.conf import settings as django_settings
-from urllib3.util import Timeout as Urllib3Timeout
 
 from .utils import InertiaJsonEncoder
 
@@ -18,10 +17,10 @@ VersionValue = Union[str, int, float, None]
 VersionResolver = Callable[[], VersionValue]
 
 # ``INERTIA_SSR_TIMEOUT`` is passed verbatim to ``requests``: seconds as a number
-# (applied to both the connect and the read phase), a ``(connect, read)`` pair,
-# a urllib3 ``Timeout`` (e.g. ``total=`` to cap the whole transfer), or ``None``
-# to wait forever. Validated at startup by the ``inertia.E002`` check.
-SsrTimeout = Union[float, tuple[float, float], Urllib3Timeout, None]
+# (applied to the connect and to each wait for data — not a wall-clock cap on
+# the whole transfer), a ``(connect, read)`` pair whose items may be ``None``,
+# or ``None`` to wait forever. Validated at startup by the ``inertia.E002`` check.
+SsrTimeout = Union[float, tuple[Union[float, None], Union[float, None]], None]
 
 
 class InertiaSettings:

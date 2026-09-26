@@ -23,21 +23,14 @@ try:
     # Must be early-imported so tests can patch it with
     # a mock module
     import requests
-
-    # Bound by name at import time: tests patch the whole ``requests`` module,
-    # and an ``except requests.RequestException`` would then catch a Mock.
-    from requests.exceptions import RequestException
 except ImportError:
     requests = None  # type: ignore[assignment]
-    # ``RequestException`` subclasses ``OSError`` (``IOError``); it is the
-    # closest stdlib ancestor of everything ``requests`` raises.
-    RequestException = OSError  # type: ignore[assignment,misc]
 
 # Every way the SSR render call itself can fail — see the ``except`` in
 # ``build_first_load_context_and_template``. A named tuple rather than an inline
 # one: ruff's py314 target would rewrite ``except (A, B):`` to PEP 758's
 # ``except A, B:``, a SyntaxError on the Python 3.12/3.13 the package supports.
-_SSR_RENDER_ERRORS = (RequestException, ValueError, TypeError, OverflowError)
+_SSR_RENDER_ERRORS = (OSError, ValueError, TypeError, OverflowError, RecursionError)
 
 _logger = logging.getLogger("inertia_django_full_of_juice")
 
@@ -703,13 +696,15 @@ class BaseInertiaResponseMixin:
                     **self.template_data,
                 }, INERTIA_SSR_TEMPLATE
             # Deliberately narrow — every way the render call itself can fail:
-            # ``RequestException`` (connection errors, timeouts, non-2xx via
-            # ``raise_for_status``, undecodable JSON), ``ValueError`` (urllib3
-            # rejecting a malformed ``INERTIA_SSR_TIMEOUT``), ``OverflowError``
-            # (a timeout too large for the platform clock, ~9.2e9s and up) and
-            # ``TypeError`` (a JSON body that is not an object, e.g. the Vite
-            # dev server's ``null`` while it warms up). Anything else propagates, notably a
-            # per-request deadline such as gunicorn+gevent's
+            # ``OSError`` (everything ``requests`` raises — connection errors,
+            # timeouts, non-2xx via ``raise_for_status``, undecodable JSON —
+            # subclasses it, as does the plain ``OSError`` for a missing CA
+            # bundle), ``ValueError`` (urllib3 rejecting a malformed
+            # ``INERTIA_SSR_TIMEOUT``), ``OverflowError`` (a timeout too large
+            # for the platform clock), ``RecursionError`` (pathologically nested
+            # JSON) and ``TypeError`` (a JSON body that is not an object, e.g.
+            # the Vite dev server's ``null`` while it warms up). Anything else
+            # propagates, notably a per-request deadline such as gunicorn+gevent's
             # ``gevent.Timeout(n, exception=SomeError)``: swallowing it here
             # would turn the application's deadline into a 200 client shell.
             # Laravel's ``HttpGateway::dispatch`` catches ``Exception``; PHP has

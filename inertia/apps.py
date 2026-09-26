@@ -6,7 +6,6 @@ from typing import Any
 from django.apps import AppConfig
 from django.core import checks
 from django.core.checks import CheckMessage
-from urllib3.util import Timeout as Urllib3Timeout
 
 from .settings import settings
 
@@ -62,10 +61,6 @@ def check_ssr_timeout(
     of failing at startup.
     """
     timeout = settings.INERTIA_SSR_TIMEOUT
-    if isinstance(timeout, Urllib3Timeout):
-        # requests hands a urllib3 ``Timeout`` through untouched (the way to cap
-        # the total transfer time); urllib3 validated it on construction.
-        return []
     if isinstance(timeout, tuple):
         valid = len(timeout) == 2 and all(_is_valid_timeout_part(p) for p in timeout)
     else:

@@ -1,4 +1,5 @@
 import json
+import os
 import socket
 import time
 from collections.abc import Iterator
@@ -157,6 +158,19 @@ class SSRTestCase(InertiaTestCase):
         self.assertTemplateUsed(response, "inertia.html")
 
     @patch("inertia.http.requests")
+    def test_it_fallsback_on_pathologically_nested_json(self, mock_requests):
+        # A real ``Response``: ``json()`` itself hits the recursion limit.
+        nested = requests.models.Response()
+        nested.status_code = 200
+        nested.encoding = "utf-8"
+        nested._content = b"[" * 100_000 + b"]" * 100_000
+        mock_requests.post.return_value = nested
+
+        response = self.client.get("/props/")
+
+        self.assertTemplateUsed(response, "inertia.html")
+
+    @patch("inertia.http.requests")
     def test_it_fallsback_on_a_timeout_the_platform_clock_cannot_represent(
         self, mock_requests
     ):
@@ -239,7 +253,7 @@ class SSRTimeoutRealSocketTestCase(InertiaTestCase):
         self.assertIn("SSR render request failed", logs.output[0])
         self.assertIn("ReadTimeout", logs.output[0])
 
-    def test_a_malformed_timeout_falls_back_on_every_request(self):
+    def test_a_malformed_timeout_falls_back(self):
         # Why ``inertia.E002`` exists: urllib3 rejects the value with ValueError
         # on every call, so SSR is silently disabled rather than failing loudly.
         with (
@@ -264,6 +278,21 @@ class SSRTimeoutRealSocketTestCase(InertiaTestCase):
 
         self.assertTemplateUsed(response, "inertia.html")
         self.assertIn("OverflowError", logs.output[0])
+
+    def test_a_missing_ca_bundle_falls_back(self):
+        # requests raises a plain ``OSError`` (not a ``RequestException``) for an
+        # https URL whose CA bundle path does not exist, before connecting.
+        with (
+            _unresponsive_ssr_server() as url,
+            patch.dict(os.environ, {"REQUESTS_CA_BUNDLE": "/nonexistent/ca.pem"}),
+            override_settings(INERTIA_SSR_URL=url.replace("http://", "https://")),
+            self.assertLogs("inertia_django_full_of_juice", "ERROR") as logs,
+        ):
+            response = self.client.get("/props/")
+
+        self.assertTemplateUsed(response, "inertia.html")
+        self.assertIn("OSError", logs.output[0])
+        self.assertIn("CA certificate bundle", logs.output[0])
 
 
 def _ssr_body() -> Mock:

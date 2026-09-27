@@ -58,7 +58,8 @@ def check_ssr_timeout(
     urllib3 rejects a malformed timeout with ``ValueError`` on every render
     call, which the SSR fallback catches — so without this check a typo such as
     ``"4"`` (an unparsed env var) silently disables SSR on every request instead
-    of failing at startup.
+    of failing when Django runs its checks (``runserver`` / ``manage.py check``
+    / ``migrate``).
     """
     timeout = settings.INERTIA_SSR_TIMEOUT
     if isinstance(timeout, tuple):

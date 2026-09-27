@@ -1,6 +1,7 @@
 import json
 import os
 import socket
+import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -193,7 +194,49 @@ class SSRTestCase(InertiaTestCase):
         response = self.client.get("/props/")
 
         self.assertTemplateUsed(response, "inertia.html")
-        mock_logger.exception.assert_called_once_with("SSR render request failed")
+        self.assertContains(
+            response, inertia_div("props", props={"name": "Brandon", "sport": "Hockey"})
+        )
+        mock_logger.error.assert_called_once_with(
+            "SSR render request failed: the response has no rendered body "
+            "(component=%r)",
+            "TestComponent",
+        )
+
+    def test_it_fallsback_on_a_response_without_rendered_markup(self):
+        # A 2xx whose payload carries no usable ``body`` would render a page
+        # without the app root, so the client could never boot: it must fall
+        # back to the client shell exactly like a failed render.
+        for payload in (
+            {},
+            {"head": ["<title>Head works</title>"]},
+            {"head": [], "body": ""},
+            {"head": [], "body": "   \n"},
+            {"head": [], "body": None},
+            {"head": [], "body": ["<div>not a string</div>"]},
+            [],
+            "<div>Body Works</div>",
+        ):
+            with (
+                self.subTest(payload=payload),
+                patch("inertia.http.requests") as mock_requests,
+                patch("inertia.http._logger") as mock_logger,
+            ):
+                mock_response = Mock()
+                mock_response.json.return_value = payload
+                mock_requests.post.return_value = mock_response
+
+                response = self.client.get("/props/")
+
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(
+                    response,
+                    inertia_div("props", props={"name": "Brandon", "sport": "Hockey"}),
+                )
+                self.assertNotContains(
+                    response, "head--<title>Head works</title>--head"
+                )
+                mock_logger.error.assert_called_once()
 
     @patch("inertia.http._logger")
     @patch("inertia.http.requests")
@@ -217,19 +260,29 @@ class _DeadlineExceededError(Exception):
 
 
 @contextmanager
-def _unresponsive_ssr_server() -> Iterator[str]:
+def _unresponsive_ssr_server(give_up_after: float = 10.0) -> Iterator[str]:
     """A listening socket that never answers: the TCP handshake completes via the
     kernel backlog, the request bytes are buffered, and no response ever comes —
-    a hung SSR service rather than a dead one (which would refuse at once)."""
+    a hung SSR service rather than a dead one (which would refuse at once).
+
+    Watchdog: if the render call ever stops honoring its timeout, closing the
+    listener after ``give_up_after`` seconds resets the pending connection, so
+    the test fails on its timing assertion instead of hanging the suite."""
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind(("127.0.0.1", 0))
     server.listen(8)
+    watchdog = threading.Timer(give_up_after, server.close)
+    watchdog.daemon = True
+    watchdog.start()
     try:
         yield f"http://127.0.0.1:{server.getsockname()[1]}"
     finally:
+        watchdog.cancel()
         server.close()
 
 
+# A proxy from the environment would answer in place of the stub.
+@patch.dict(os.environ, {"NO_PROXY": "127.0.0.1", "no_proxy": "127.0.0.1"})
 @override_settings(INERTIA_SSR_ENABLED=True, INERTIA_VERSION="1.0")
 class SSRTimeoutRealSocketTestCase(InertiaTestCase):
     """Unmocked ``requests`` against a hung SSR service: proves the timeout is

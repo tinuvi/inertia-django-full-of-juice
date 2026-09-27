@@ -31,7 +31,7 @@ class SSRTimeoutCheckTestCase(InertiaTestCase):
     def test_default_produces_no_errors(self):
         self.assertEqual(check_ssr_timeout(None), [])
 
-    def test_values_requests_accepts_produce_no_errors(self):
+    def test_valid_values_produce_no_errors(self):
         for value in (
             1,
             2.5,
@@ -50,7 +50,7 @@ class SSRTimeoutCheckTestCase(InertiaTestCase):
             ):
                 self.assertEqual(check_ssr_timeout(None), [])
 
-    def test_values_requests_rejects_report_an_error(self):
+    def test_invalid_values_report_an_error(self):
         for value in (
             "4",
             0,

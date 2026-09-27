@@ -88,8 +88,9 @@ services:
       INERTIA_SSR_URL: "http://ssr_unresponsive:13714"
       INERTIA_SSR_TIMEOUT: "1"
       REQUEST_DEADLINE_SECONDS: "20"
-      # Test-only: honors X-E2E-Request-Deadline (gunicorn_gevent.py). Never
-      # set in production.
+      # Test-only: honors X-E2E-Request-Deadline (gunicorn_gevent.py) and, as on
+      # the other targets, exposes the version-flip endpoint. Never set in
+      # production.
       E2E_TEST_HOOKS: "True"
     command: ["./scripts/start-web-gevent.sh"]
     depends_on:

@@ -19,7 +19,7 @@ VersionResolver = Callable[[], VersionValue]
 # ``INERTIA_SSR_TIMEOUT`` is passed verbatim to ``requests``: seconds as a number
 # (applied to the connect and to each wait for data — not a wall-clock cap on
 # the whole transfer), a ``(connect, read)`` pair whose items may be ``None``,
-# or ``None`` to wait forever. Validated at startup by the ``inertia.E002`` check.
+# or ``None`` to wait forever. Validated by the ``inertia.E002`` system check.
 SsrTimeout = Union[float, tuple[Union[float, None], Union[float, None]], None]
 
 

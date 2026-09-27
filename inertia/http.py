@@ -30,7 +30,7 @@ except ImportError:
 # ``build_first_load_context_and_template``. A named tuple rather than an inline
 # one: ruff's py314 target would rewrite ``except (A, B):`` to PEP 758's
 # ``except A, B:``, a SyntaxError on the Python 3.12/3.13 the package supports.
-_SSR_RENDER_ERRORS = (OSError, ValueError, TypeError, OverflowError, RecursionError)
+_SSR_RENDER_ERRORS = (OSError, ValueError, OverflowError, RecursionError)
 
 _logger = logging.getLogger("inertia_django_full_of_juice")
 
@@ -687,30 +687,42 @@ class BaseInertiaResponseMixin:
                     timeout=settings.INERTIA_SSR_TIMEOUT,
                 )
                 response.raise_for_status()
-                _logger.debug(
-                    "first-load shell: SSR render succeeded for component=%r",
-                    self.component,
-                )
-                return {
-                    **response.json(),
-                    **self.template_data,
-                }, INERTIA_SSR_TEMPLATE
+                rendered = response.json()
             # Deliberately narrow — every way the render call itself can fail:
             # ``OSError`` (everything ``requests`` raises — connection errors,
             # timeouts, non-2xx via ``raise_for_status``, undecodable JSON —
             # subclasses it, as does the plain ``OSError`` for a missing CA
             # bundle), ``ValueError`` (urllib3 rejecting a malformed
             # ``INERTIA_SSR_TIMEOUT``), ``OverflowError`` (a timeout too large
-            # for the platform clock), ``RecursionError`` (pathologically nested
-            # JSON) and ``TypeError`` (a JSON body that is not an object, e.g.
-            # the Vite dev server's ``null`` while it warms up). Anything else
-            # propagates, notably a per-request deadline such as gunicorn+gevent's
-            # ``gevent.Timeout(n, exception=SomeError)``: swallowing it here
-            # would turn the application's deadline into a 200 client shell.
-            # Laravel's ``HttpGateway::dispatch`` catches ``Exception``; PHP has
-            # no deadline that can interrupt the HTTP call this way.
+            # for the platform clock) and ``RecursionError`` (pathologically
+            # nested JSON). Anything else propagates, notably a per-request
+            # deadline such as gunicorn+gevent's ``gevent.Timeout(n,
+            # exception=SomeError)``: swallowing it here would turn the
+            # application's deadline into a 200 client shell. Laravel's
+            # ``HttpGateway::dispatch`` catches ``Exception`` (re-throwing only
+            # ``StrayRequestException`` and ``SsrException``); PHP has no
+            # deadline that can interrupt the HTTP call this way.
             except _SSR_RENDER_ERRORS:
                 _logger.exception("SSR render request failed")
+            else:
+                # A successful answer is only usable when it carries rendered
+                # markup: ``{}``, the Vite dev server's warm-up ``null`` or an
+                # empty body would render a page without the app root, which the
+                # client cannot boot — so they fall back like a failed render.
+                # Stricter than Laravel's ``HttpGateway::dispatch``, which falls
+                # back only when the whole payload is empty.
+                body = rendered.get("body") if isinstance(rendered, dict) else None
+                if isinstance(body, str) and body.strip():
+                    _logger.debug(
+                        "first-load shell: SSR render succeeded for component=%r",
+                        self.component,
+                    )
+                    return {**rendered, **self.template_data}, INERTIA_SSR_TEMPLATE
+                _logger.error(
+                    "SSR render request failed: the response has no rendered body "
+                    "(component=%r)",
+                    self.component,
+                )
 
         # Escape characters that would let an attacker break out of the
         # `<script type="application/json">` block in the v3 page-shell.

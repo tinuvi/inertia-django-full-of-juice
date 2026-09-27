@@ -3,7 +3,9 @@ import shlex
 import subprocess
 import urllib.request
 from pathlib import Path
-from typing import List, Union
+from typing import List, Optional, Union
+
+from packaging.version import Version
 
 
 def execute_command(command: Union[List[str], str], path=None) -> str:
@@ -59,6 +61,16 @@ def version_exists_on_test_pypi(package_name, version):
         return False
 
 
+def latest_version_on_test_pypi(package_name) -> Optional[str]:
+    url = f"https://test.pypi.org/pypi/{package_name}/json"
+    try:
+        with urllib.request.urlopen(url) as response:
+            releases = json.loads(response.read().decode()).get("releases", {})
+    except urllib.error.HTTPError:
+        return None
+    return str(max(releases, key=Version)) if releases else None
+
+
 def publish_test_pypi(number_of_tries=20, path=None):
     first_command = "yes"
     second_command = "poetry publish --build --repository testpypi"
@@ -66,6 +78,17 @@ def publish_test_pypi(number_of_tries=20, path=None):
 
     version_output = execute_command(["poetry", "version"], path=path).strip()
     package_name, current_version = version_output.rsplit(" ", 1)
+
+    # pyproject's version is a placeholder (releases are tag-driven), so every
+    # run used to walk up from it one pre-release at a time and ran out of tries
+    # once TestPyPI held more versions than the retry budget. Start right after
+    # the newest published version instead; the loop below only handles races.
+    latest_version = latest_version_on_test_pypi(package_name)
+    if latest_version is not None and Version(latest_version) >= Version(
+        current_version
+    ):
+        execute_command(["poetry", "version", latest_version], path=path)
+        current_version = increase_version_to_test_pypi(path=path)
 
     for _ in range(number_of_tries):
         if version_exists_on_test_pypi(package_name, current_version):

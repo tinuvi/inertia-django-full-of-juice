@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-09-27
+
+### Added
+- `INERTIA_SSR_TIMEOUT` setting (default `5.0` seconds) bounding the first-load SSR render call, passed verbatim to `requests` — a number (the connect and each wait for data; not a wall-clock cap), a `(connect, read)` tuple, or `None` to wait forever. Mirrors Laravel's `inertia.ssr.timeout` (`inertiajs/inertia-laravel@3.x` `config/inertia.php:34`, fed by the `INERTIA_SSR_TIMEOUT` env var; PR #916); like every setting here it is read from Django settings, so convert env vars yourself. Intentional divergences: Laravel defaults it to `null` because its HTTP client already falls back to a 30s timeout (10s to connect) — `requests` has no default at all, so the library ships a finite one, `5`, the official SSR docs' example value; and a plain number bounds the connect and each read rather than Guzzle's total transfer time.
+- Django system check `inertia.E002` validating `INERTIA_SSR_TIMEOUT` whenever Django runs its checks (`runserver` / `manage.py check` / `migrate`; gunicorn and uWSGI don't): a positive, finite number; a 2-tuple whose items are such numbers or `None`; or `None` — never a bool. Without it a malformed value — typically an unconverted env-var string such as `"4"` — makes urllib3 raise `ValueError` on every render call, which the fallback catches, silently disabling SSR with a traceback per request; `inf` passes urllib3's validation and then overflows the platform clock on every call (`None` is the way to wait forever).
+
+### Changed
+- The SSR render call now gives up after 5 seconds by default (it used to wait forever): a render that legitimately takes longer now falls back to the client-side shell. Raise `INERTIA_SSR_TIMEOUT`, or set it to `None` to restore the old unbounded wait.
+- The SSR fallback now catches only failures of the render call itself — `OSError` (everything `requests` raises: connection errors, timeouts, non-2xx responses, undecodable JSON; plus the plain `OSError` for a missing CA bundle), `ValueError` (a malformed timeout), `OverflowError` (a timeout too large for the platform clock) and `RecursionError` (pathologically nested JSON) — instead of every `Exception`. Anything else propagates, so a per-request deadline raised while the call waits (gunicorn's gevent worker with `gevent.Timeout(n, exception=SomeError)`) reaches the application instead of being turned into a `200` client shell; the deadline exception must not derive from any of those types (so not `TimeoutError` or its aliases `socket.timeout` / `asyncio.TimeoutError` / `concurrent.futures.TimeoutError`, which are `OSError`s). Intentional divergence: Laravel's `HttpGateway::dispatch` catches `Exception` (re-throwing only `StrayRequestException` and `SsrException`); PHP has no deadline that can interrupt the HTTP call this way.
+
+### Fixed
+- A successful SSR response without rendered markup — `{}`, or a missing, empty or non-string `body` — no longer renders a page without the app root that the client can never boot: like a JSON body that is not an object (e.g. the Vite dev server's `null` while warming up), it now falls back to the client-side shell and logs `SSR render request failed: the response has no rendered body`. Intentional divergence: Laravel's `HttpGateway::dispatch` (`src/Ssr/HttpGateway.php:69-75`) falls back only when the whole payload is empty; a present-but-empty `body` there still renders.
+- A hung SSR service (accepting connections but never answering) no longer stalls the request indefinitely: the render call had no timeout, so `requests` waited forever and the client-shell fallback was unreachable exactly when it mattered — blocking a sync worker outright, and under gevent holding the request (and a worker connection slot) until the application's own deadline, then swallowing that deadline into a `200` client shell. It now falls back after `INERTIA_SSR_TIMEOUT` (#7).
+
 ## [0.5.1] - 2026-07-16
 
 ### Fixed

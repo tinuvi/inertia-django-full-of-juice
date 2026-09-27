@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   e2e:
-    name: Playwright tests (without-ssr + with-ssr)
+    name: Playwright tests (without-ssr + with-ssr + with-ssr-gevent)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -31,8 +31,9 @@ jobs:
           cache: 'npm'
           cache-dependency-path: playwright_e2e/package-lock.json
 
-      # Brings up both Django variants (:8000 SSR-off, :8001 SSR-on) plus the
-      # Node SSR sidecar, waiting until the web services report healthy.
+      # Brings up the three Django variants (:8000 SSR-off, :8001 SSR-on,
+      # :8002 gunicorn+gevent against a hung SSR stub) plus the Node SSR sidecar
+      # and the stub, waiting until the web services report healthy.
       - name: Bring up the sample stack
         run: docker compose -f "$COMPOSE_FILE" up --build --detach --wait --wait-timeout 360
 
@@ -48,10 +49,11 @@ jobs:
           WITHOUT_SSR_URL: http://localhost:8000
         run: npm run test
 
-      - name: Run Playwright tests (with-ssr)
+      - name: Run Playwright tests (with-ssr + with-ssr-gevent)
         working-directory: playwright_e2e
         env:
           WITH_SSR_URL: http://localhost:8001
+          WITH_SSR_GEVENT_URL: http://localhost:8002
         run: npm run test:ssr
 
       - name: Dump compose logs on failure

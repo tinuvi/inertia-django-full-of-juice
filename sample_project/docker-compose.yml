@@ -55,3 +55,50 @@ services:
       timeout: 3s
       retries: 24
       start_period: 10s
+
+  # A hung SSR service: accepts connections and never answers (the failure a
+  # dead, connection-refusing SSR process does not model). Only
+  # INERTIA_SSR_TIMEOUT bounds the render call against it.
+  ssr_unresponsive:
+    build:
+      context: ..
+      dockerfile: sample_project/Dockerfile
+    image: inertia-django-sample:latest
+    environment:
+      NODE_PORT: "13714"
+    expose:
+      - "13714"
+    command: ["python", "scripts/unresponsive_ssr.py"]
+
+  # Production-like target: gunicorn's gevent worker plus a per-request
+  # gevent.Timeout deadline (gunicorn_gevent.py), SSR pointed at the hung stub.
+  # The deadline (20s) is far above INERTIA_SSR_TIMEOUT (1s), so the spec can
+  # tell "bounded by the SSR timeout" apart from "waited for the deadline".
+  sample_project_gevent_ssr:
+    build:
+      context: ..
+      dockerfile: sample_project/Dockerfile
+    image: inertia-django-sample:latest
+    ports:
+      - "8002:8000"
+    environment:
+      DJANGO_DEBUG: "True"
+      DJANGO_VITE_DEV_MODE: "False"
+      INERTIA_SSR_ENABLED: "True"
+      INERTIA_SSR_URL: "http://ssr_unresponsive:13714"
+      INERTIA_SSR_TIMEOUT: "1"
+      REQUEST_DEADLINE_SECONDS: "20"
+      # Test-only: honors X-E2E-Request-Deadline (gunicorn_gevent.py) and, as on
+      # the other targets, exposes the version-flip endpoint. Never set in
+      # production.
+      E2E_TEST_HOOKS: "True"
+    command: ["./scripts/start-web-gevent.sh"]
+    depends_on:
+      ssr_unresponsive:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/').read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 10s

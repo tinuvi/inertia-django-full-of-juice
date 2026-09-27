@@ -16,6 +16,12 @@ __all__ = ["settings", "resolve_inertia_version"]
 VersionValue = Union[str, int, float, None]
 VersionResolver = Callable[[], VersionValue]
 
+# ``INERTIA_SSR_TIMEOUT`` is passed verbatim to ``requests``: seconds as a number
+# (applied to the connect and to each wait for data — not a wall-clock cap on
+# the whole transfer), a ``(connect, read)`` pair whose items may be ``None``,
+# or ``None`` to wait forever. Validated by the ``inertia.E002`` system check.
+SsrTimeout = Union[float, tuple[Union[float, None], Union[float, None]], None]
+
 
 class InertiaSettings:
     INERTIA_VERSION: Union[VersionValue, VersionResolver] = "1.0"
@@ -23,6 +29,12 @@ class InertiaSettings:
     INERTIA_SSR_URL = "http://localhost:13714"
     INERTIA_SSR_ENABLED = False
     INERTIA_SSR_EXCLUDE: list[str] = []
+    # Bounds the first-load render call so a hung SSR service degrades to the
+    # client-side shell instead of stalling the request. Mirrors Laravel's
+    # ``inertia.ssr.timeout`` (``INERTIA_SSR_TIMEOUT``); unlike Laravel, whose
+    # HTTP client already defaults to 30s, ``requests`` has no default at all,
+    # so the library ships a finite one. 5s matches the official SSR docs example.
+    INERTIA_SSR_TIMEOUT: SsrTimeout = 5.0
     INERTIA_ENCRYPT_HISTORY = False
     # Mirrors Laravel's ``inertia.expose_shared_prop_keys`` (default true): emit
     # the v3 ``sharedProps`` page field listing the top-level keys registered

@@ -26,6 +26,12 @@ try:
 except ImportError:
     requests = None  # type: ignore[assignment]
 
+# Every way the SSR render call itself can fail — see the ``except`` in
+# ``build_first_load_context_and_template``. A named tuple rather than an inline
+# one: ruff's py314 target would rewrite ``except (A, B):`` to PEP 758's
+# ``except A, B:``, a SyntaxError on the Python 3.12/3.13 the package supports.
+_SSR_RENDER_ERRORS = (OSError, ValueError, OverflowError, RecursionError)
+
 _logger = logging.getLogger("inertia_django_full_of_juice")
 
 P = ParamSpec("P")
@@ -672,22 +678,51 @@ class BaseInertiaResponseMixin:
             try:
                 # ``requests`` is a hard dependency; the module-level ``None`` fallback
                 # only guards the optional import, so this path runs only when present.
+                # ``timeout`` bounds a hung SSR service: without it ``requests``
+                # waits forever and the fallback below is never reached.
                 response = requests.post(  # pyrefly: ignore[missing-attribute]
                     f"{settings.INERTIA_SSR_URL}/render",
                     data=data,
                     headers={"Content-Type": "application/json"},
+                    timeout=settings.INERTIA_SSR_TIMEOUT,
                 )
                 response.raise_for_status()
-                _logger.debug(
-                    "first-load shell: SSR render succeeded for component=%r",
+                rendered = response.json()
+            # Deliberately narrow — every way the render call itself can fail:
+            # ``OSError`` (everything ``requests`` raises — connection errors,
+            # timeouts, non-2xx via ``raise_for_status``, undecodable JSON —
+            # subclasses it, as does the plain ``OSError`` for a missing CA
+            # bundle), ``ValueError`` (urllib3 rejecting a malformed
+            # ``INERTIA_SSR_TIMEOUT``), ``OverflowError`` (a timeout too large
+            # for the platform clock) and ``RecursionError`` (pathologically
+            # nested JSON). Anything else propagates, notably a per-request
+            # deadline such as gunicorn+gevent's ``gevent.Timeout(n,
+            # exception=SomeError)``: swallowing it here would turn the
+            # application's deadline into a 200 client shell. Laravel's
+            # ``HttpGateway::dispatch`` catches ``Exception`` (re-throwing only
+            # ``StrayRequestException`` and ``SsrException``); PHP has no
+            # deadline that can interrupt the HTTP call this way.
+            except _SSR_RENDER_ERRORS:
+                _logger.exception("SSR render request failed")
+            else:
+                # A successful answer is only usable when it carries rendered
+                # markup: ``{}``, the Vite dev server's warm-up ``null`` or an
+                # empty body would render a page without the app root, which the
+                # client cannot boot — so they fall back like a failed render.
+                # Stricter than Laravel's ``HttpGateway::dispatch``, which falls
+                # back only when the whole payload is empty.
+                body = rendered.get("body") if isinstance(rendered, dict) else None
+                if isinstance(body, str) and body.strip():
+                    _logger.debug(
+                        "first-load shell: SSR render succeeded for component=%r",
+                        self.component,
+                    )
+                    return {**rendered, **self.template_data}, INERTIA_SSR_TEMPLATE
+                _logger.error(
+                    "SSR render request failed: the response has no rendered body "
+                    "(component=%r)",
                     self.component,
                 )
-                return {
-                    **response.json(),
-                    **self.template_data,
-                }, INERTIA_SSR_TEMPLATE
-            except Exception:
-                _logger.exception("SSR render request failed")
 
         # Escape characters that would let an attacker break out of the
         # `<script type="application/json">` block in the v3 page-shell.

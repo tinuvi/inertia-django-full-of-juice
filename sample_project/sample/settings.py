@@ -88,6 +88,9 @@ INERTIA_SSR_ENABLED = os.getenv("INERTIA_SSR_ENABLED", "False").lower() == "true
 INERTIA_SSR_URL = os.getenv("INERTIA_SSR_URL", "http://localhost:13714")
 # Comma-separated regex patterns; matching request paths skip SSR.
 INERTIA_SSR_EXCLUDE = [p for p in os.getenv("INERTIA_SSR_EXCLUDE", "").split(",") if p]
+# Seconds to wait on the SSR service before serving the client shell. Env vars
+# are strings: convert them, or the inertia.E002 system check rejects the value.
+INERTIA_SSR_TIMEOUT = float(os.getenv("INERTIA_SSR_TIMEOUT") or 5)
 # --- E2E test hooks: runtime-mutable asset version --------------------------
 # INERTIA_VERSION is a callable (the library resolves it per request) so the
 # Playwright suite can flip the server's asset version while the container is
